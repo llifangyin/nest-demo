@@ -7,6 +7,7 @@ import {
   Delete,
   Put,
   ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { UsersService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -18,8 +19,11 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  findAll() {
-    return this.usersService.findAll();
+  findAll(
+    @Query('name') name?: string,
+    @Query('email') email?: string,
+  ) {
+    return this.usersService.findAll(name, email);
   }
 
   @Get(':id')

@@ -12,11 +12,21 @@ export interface User {
 
 @Injectable()
 export class UsersService {
-  private users: User[] = [];
+  private users: User[] = [
+    { id: 0, name: 'John Doe', email: 'john.doe@example.com', password: 'password', createdAt: new Date() },
+    { id: 1, name: 'Jane Smith', email: 'jane.smith@example.com', password: 'password', createdAt: new Date() }
+  ];
   private nextId = 1;
 
-  findAll(): User[] {
-    return this.users;
+  findAll(name?: string, email?: string): Omit<User, 'password'>[] {
+    let list = this.users.map(({ password, ...u }) => u);
+    if (name) {
+      list = list.filter((u) => u.name.includes(name));
+    }
+    if (email) {
+      list = list.filter((u) => u.email.includes(email));
+    }
+    return list;
   }
 
   findOne(id: number): User {
