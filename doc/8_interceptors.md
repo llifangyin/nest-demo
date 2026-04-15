@@ -5,21 +5,21 @@
 ```
 HTTP 请求
       ↓
-  Middleware          通用处理：日志、CORS、解析 token
+  Middleware          通用处理：日志、CORS、解析 token | 类似vue的beforeEach
       ↓
-  Guard               能不能进：JWT验证、角色权限
+  Guard               能不能进：JWT验证、角色权限 | 类似vue的路由守卫
       ↓
-  Interceptor 前置    记录开始时间、初始化上下文
+  Interceptor 前置    记录开始时间、初始化上下文 | 类似vue的axios的request interceptor
       ↓
-  Pipe                验证参数、转换类型
+  Pipe                验证参数、转换类型   |  类似vue的表单验证
       ↓
-  Controller          路由匹配、调用 Service
+  Controller          路由匹配、调用 Service  | 类似vue的组件方法
       ↓
-  Service             业务逻辑、数据库操作
+  Service             业务逻辑、数据库操作  | 类似vue的组件方法
       ↓
-  Interceptor 后置    统一响应格式、记录耗时、过滤字段
+  Interceptor 后置    统一响应格式、记录耗时、过滤字段   | 类似vue的axios的response interceptor
       ↓
-  Exception Filter    捕获异常、格式化错误响应
+  Exception Filter    捕获异常、格式化错误响应  | 类似vue的全局错误处理
       ↓
 HTTP 响应
 ```
