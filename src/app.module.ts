@@ -25,12 +25,16 @@ import { CacheModule } from '@nestjs/cache-manager';
       isGlobal: true, // 全局可用
       inject: [ConfigService],
       useFactory: async (config: ConfigService) => {
-        const store = await import('cache-manager-ioredis-yet')
-        .then(m => m.redisStore({
+        // cache-manager-ioredis-yet 无类型声明，通过函数签名断言调用
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const { redisStore } = await import('cache-manager-ioredis-yet');
+        const store = await (
+          redisStore as (opts: Record<string, unknown>) => Promise<unknown>
+        )({
           host: config.get<string>('REDIS_HOST'),
           port: config.get<number>('REDIS_PORT'),
-        }));
-        return { store , ttl: 60 * 1000 /* 默认缓存时间 1 分钟 */};
+        });
+        return { store, ttl: 60 * 1000 /* 默认缓存时间 1 分钟 */ };
       },
     }),
     UsersModule,
@@ -41,8 +45,6 @@ import { CacheModule } from '@nestjs/cache-manager';
     AppService,
     // 全局应用 JwtAuthGuard，所有路由默认需要登录
     // 公开路由加 @Public() 装饰器即可跳过验证
-    // APP_GUARD 是 NestJS 提供的一个特殊令牌，用于注册全局守卫。
-  // 通过将 JwtAuthGuard 提供为 APP_GUARD，我们告诉 NestJS 在处理每个请求时都要使用 JwtAuthGuard 来进行身份验证。
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })

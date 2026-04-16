@@ -24,7 +24,8 @@ export interface User {
 export class UsersService {
   constructor(
     private readonly userDao: UserDao,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache) {} 
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {}
   // private users: User[] = [
   //   {
   //     id: 0,
@@ -60,14 +61,13 @@ export class UsersService {
     // v3 - 先查缓存，缓存没有再查数据库
     const cacheKey = `users:${name || ''}:${email || ''}`;
     const cached = await this.cacheManager.get<User[]>(cacheKey);
-    if(cached) {
+    if (cached) {
       return cached;
     }
 
     const data = await this.userDao.findAll({ name, email });
     await this.cacheManager.set(cacheKey, data, 60000); // 缓存1分钟
     return data;
-
   }
 
   async findOne(id: string): Promise<User> {
