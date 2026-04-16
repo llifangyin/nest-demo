@@ -6,42 +6,53 @@ import {
   Param,
   Delete,
   Put,
-  ParseIntPipe,
   Query,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { UsersService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('users')
 export class UsersController {
-  //通过构造函数注入UsersService，这样我们就可以在控制器中使用它来处理用户相关的业务逻辑了。
   constructor(private readonly usersService: UsersService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get()
-  findAll(
-    @Query('name') name?: string,
-    @Query('email') email?: string,
-  ) {
+  findAll(@Query('name') name?: string, @Query('email') email?: string) {
     return this.usersService.findAll(name, email);
   }
 
+  // 获取当前登录用户信息（来自 JwtStrategy.validate 返回值）
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  getMe(
+    @Request() req: { user: { userId: string; email: string; name: string } },
+  ) {
+    return req.user;
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
   }
 
+  // 注册接口不需要 token（新用户注册）
   @Post()
   create(@Body() dto: CreateUserDto) {
-    //@body 固定写法，表示从请求体中获取数据，并将其转换为CreateUserDto类型的对象
     return this.usersService.create(dto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Put(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(id, dto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);

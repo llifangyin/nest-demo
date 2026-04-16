@@ -11,5 +11,6 @@ import { UserDao } from './dao/user.dao';
   ],
   controllers: [UsersController],
   providers: [UsersService, UserDao], //注册UserDao到模块的providers数组中，这样NestJS就会知道如何创建和注入UserDao实例了。
+  exports: [UsersService, UserDao], //导出UsersService和UserDao，AuthModule需要UserDao来查询用户。
 })
 export class UsersModule {}

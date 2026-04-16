@@ -6,7 +6,7 @@ import {
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserDao } from './dao/user.dao';
-
+import * as bcrypt from 'bcryptjs';
 export interface User {
   id?: string;
   name: string;
@@ -75,7 +75,12 @@ export class UsersService {
         `User with email ${dto.email} already exists`,
       );
     }
-    return this.userDao.create(dto);
+    // bcrypt.hash 方法会将用户输入的密码（dto.password）进行哈希处理，生成一个安全的哈希密码字符串。
+    // 第二个参数10是盐的轮数，表示在哈希过程中会进行10轮的加盐处理，以增加哈希密码的安全性。
+    // 这个方法返回一个Promise，所以我们使用await来等待哈希处理完成，并将结果赋值给hashedPassword变量。
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    return this.userDao.create({ ...dto, password: hashedPassword });
   }
   async update(id: string, dto: UpdateUserDto) {
     // const user = this.findOne(id);
