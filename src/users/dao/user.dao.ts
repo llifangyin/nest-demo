@@ -27,6 +27,9 @@ export class UserDao {
   findByEmail(email: string): Promise<User | null> {
     return this.userModel.findOne({ email }).exec();
   }
+  findByName(name: string): Promise<User | null> {
+    return this.userModel.findOne({ name }).exec();
+  }
   create(user: Partial<User>): Promise<User> {
     //  id、createdAt和updatedAt字段会由Mongoose自动生成和维护，所以我们只需要传入name、email和password字段即可。
     return this.userModel.create(user);

@@ -14,18 +14,15 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
   async login(dto: LoginDto) {
-    const user = (await this.userDao.findByEmail(
-      dto.email,
+    const user = (await this.userDao.findByName(
+      dto.name,
     )) as UserDocument | null;
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('用户名或密码错误');
     }
-    // bcrypt.compare 方法会将用户输入的密码（dto.password）与数据库中存储的哈希密码（user.password）进行比较。
-    // 如果匹配成功，isMatch 将为 true，否则为 false。
-    // 如果密码不匹配，我们就抛出一个 UnauthorizedException 异常，提示用户邮箱或密码无效。   
     const isMatch = await bcrypt.compare(dto.password, user.password);
     if (!isMatch) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('用户名或密码错误');
     }
 
     const payload = { email: user.email, name: user.name, sub: user._id };
