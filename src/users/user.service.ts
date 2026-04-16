@@ -1,62 +1,101 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserDao } from './dao/user.dao';
 
 export interface User {
-  id: number;
+  id?: string;
   name: string;
   email: string;
   password: string;
-  createdAt: Date;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 @Injectable()
 export class UsersService {
-  private users: User[] = [
-    { id: 0, name: 'John Doe', email: 'john.doe@example.com', password: 'password', createdAt: new Date() },
-    { id: 1, name: 'Jane Smith', email: 'jane.smith@example.com', password: 'password', createdAt: new Date() }
-  ];
-  private nextId = 1;
+  constructor(private readonly userDao: UserDao) {} //通过构造函数注入UserDao，这样我们就可以在服务中使用它来进行数据库操作了。
+  // private users: User[] = [
+  //   {
+  //     id: 0,
+  //     name: 'John Doe',
+  //     email: 'john.doe@example.com',
+  //     password: 'password',
+  //     createdAt: new Date(),
+  //     updatedAt: new Date(),
+  //   },
+  //   {
+  //     id: 1,
+  //     name: 'Jane Smith',
+  //     email: 'jane.smith@example.com',
+  //     password: 'password',
+  //     createdAt: new Date(),
+  //     updatedAt: new Date(),
+  //   },
+  // ];
+  // private nextId = 1;
 
-  findAll(name?: string, email?: string): Omit<User, 'password'>[] {
-    let list = this.users.map(({ password, ...u }) => u);
-    if (name) {
-      list = list.filter((u) => u.name.includes(name));
-    }
-    if (email) {
-      list = list.filter((u) => u.email.includes(email));
-    }
-    return list;
+  findAll(name?: string, email?: string): Promise<User[]> {
+    // let list = this.users.map(({ password, ...u }) => u);
+    // if (name) {
+    //   list = list.filter((u) => u.name.includes(name));
+    // }
+    // if (email) {
+    //   list = list.filter((u) => u.email.includes(email));
+    // }
+    // return list;
+    return this.userDao.findAll({ name, email });
   }
 
-  findOne(id: number): User {
-    const user = this.users.find((user) => user.id === id);
+  async findOne(id: string): Promise<User> {
+    // const user = this.users.find((user) => user.id === id);
+    // if (!user) {
+    //   throw new NotFoundException(`User with id ${id} not found`);
+    // }
+    // return user;
+    const user = await this.userDao.findById(id);
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
     return user;
   }
 
-  create(dto: CreateUserDto) {
-    const user: User = { id: this.nextId++, createdAt: new Date(), ...dto };
-    this.users.push(user);
-    const { password, ...result } = user;
-    return result;
-  }
-  update(id: number, dto: UpdateUserDto) {
-    const user = this.findOne(id);
-    if (!user) {
-      throw new NotFoundException(`User with id ${id} not found`);
+  async create(dto: CreateUserDto) {
+    // const user: User = { id: this.nextId++, createdAt: new Date(), updatedAt: new Date(), ...dto };
+    // this.users.push(user);
+    // const { password, ...result } = user;
+    // return result;
+    const exist = await this.userDao.exists({ email: dto.email });
+    if (exist) {
+      throw new ConflictException(
+        `User with email ${dto.email} already exists`,
+      );
     }
-    Object.assign(user, dto);
-    const { password, ...result } = user;
-    return result;
+    return this.userDao.create(dto);
   }
-  remove(id: number) {
-    const index = this.users.findIndex((user) => user.id === id);
-    if (index === -1) {
-      throw new NotFoundException(`User with id ${id} not found`);
-    }
-    this.users.splice(index, 1);
+  async update(id: string, dto: UpdateUserDto) {
+    // const user = this.findOne(id);
+    // if (!user) {
+    //   throw new NotFoundException(`User with id ${id} not found`);
+    // }
+    // Object.assign(user, dto);
+    // user.updatedAt = new Date();
+    // const { password, ...result } = user;
+    // return result;
+    await this.findOne(id); //先检查用户是否存在，如果不存在会抛出NotFoundException异常
+    return this.userDao.updateById(id, dto);
+  }
+  async remove(id: string) {
+    // const index = this.users.findIndex((user) => user.id === id);
+    // if (index === -1) {
+    //   throw new NotFoundException(`User with id ${id} not found`);
+    // }
+    // this.users.splice(index, 1);
+    await this.findOne(id); //先检查用户是否存在，如果不存在会抛出NotFoundException异常
+    return this.userDao.deleteById(id);
   }
 }
