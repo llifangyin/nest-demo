@@ -8,13 +8,16 @@ import {
   Put,
   Query,
   Request,
+  UseInterceptors,
 } from '@nestjs/common';
 import { UsersService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Public } from '../auth/decorators/public.decorator';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 
 @Controller('users')
+@UseInterceptors(CacheInterceptor) // 在控制器层使用缓存拦截器，这样所有路由的响应都会被缓存
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 

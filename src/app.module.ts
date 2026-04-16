@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { UsersModule } from './users/users.modules';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { CacheModule } from '@nestjs/cache-manager';
 
 @Module({
   imports: [
@@ -18,6 +19,19 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       useFactory: (config: ConfigService) => ({
         uri: config.get<string>('MONGODB_URI'),
       }),
+    }),
+    // 异步注册 CacheModule，使用 Redis 作为缓存存储
+    CacheModule.registerAsync({
+      isGlobal: true, // 全局可用
+      inject: [ConfigService],
+      useFactory: async (config: ConfigService) => {
+        const store = await import('cache-manager-ioredis-yet')
+        .then(m => m.redisStore({
+          host: config.get<string>('REDIS_HOST'),
+          port: config.get<number>('REDIS_PORT'),
+        }));
+        return { store , ttl: 60 * 1000 /* 默认缓存时间 1 分钟 */};
+      },
     }),
     UsersModule,
     AuthModule,

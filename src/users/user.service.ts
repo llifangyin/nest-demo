@@ -7,6 +7,10 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserDao } from './dao/user.dao';
 import * as bcrypt from 'bcryptjs';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Inject } from '@nestjs/common';
+import type { Cache } from 'cache-manager';
+
 export interface User {
   id?: string;
   name: string;
@@ -18,7 +22,9 @@ export interface User {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly userDao: UserDao) {} //通过构造函数注入UserDao，这样我们就可以在服务中使用它来进行数据库操作了。
+  constructor(
+    private readonly userDao: UserDao,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache) {} 
   // private users: User[] = [
   //   {
   //     id: 0,
@@ -39,7 +45,8 @@ export class UsersService {
   // ];
   // private nextId = 1;
 
-  findAll(name?: string, email?: string): Promise<User[]> {
+  async findAll(name?: string, email?: string): Promise<User[]> {
+    // v1 - 内存数据
     // let list = this.users.map(({ password, ...u }) => u);
     // if (name) {
     //   list = list.filter((u) => u.name.includes(name));
@@ -48,7 +55,19 @@ export class UsersService {
     //   list = list.filter((u) => u.email.includes(email));
     // }
     // return list;
-    return this.userDao.findAll({ name, email });
+    // v2 - 数据库查询
+    // return this.userDao.findAll({ name, email });
+    // v3 - 先查缓存，缓存没有再查数据库
+    const cacheKey = `users:${name || ''}:${email || ''}`;
+    const cached = await this.cacheManager.get<User[]>(cacheKey);
+    if(cached) {
+      return cached;
+    }
+
+    const data = await this.userDao.findAll({ name, email });
+    await this.cacheManager.set(cacheKey, data, 60000); // 缓存1分钟
+    return data;
+
   }
 
   async findOne(id: string): Promise<User> {
