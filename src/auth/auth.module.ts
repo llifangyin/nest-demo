@@ -10,6 +10,7 @@ import { UsersModule } from 'src/users/users.modules';
 @Module({
   imports: [
     PassportModule, 
+    //  JwtModule.registerAsync 方法允许我们异步配置 JWT 模块，这样我们就可以从 ConfigService 中获取 JWT_SECRET 和过期时间等配置项了。
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
@@ -19,7 +20,7 @@ import { UsersModule } from 'src/users/users.modules';
         },
       }),
     }),
-    UsersModule,
+    UsersModule,// 引入 UsersModule，这样我们就可以在 AuthService 中注入 UserDao 来查询用户了。
   ],
   providers: [AuthService, JwtStrategy],
   controllers: [AuthController],

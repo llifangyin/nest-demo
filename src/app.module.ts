@@ -8,6 +8,7 @@ import { UsersModule } from './users/users.modules';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
+import { ExportModule } from './export/export.module';
 
 @Module({
   imports: [
@@ -26,7 +27,6 @@ import { CacheModule } from '@nestjs/cache-manager';
       inject: [ConfigService],
       useFactory: async (config: ConfigService) => {
         // cache-manager-ioredis-yet 无类型声明，通过函数签名断言调用
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const { redisStore } = await import('cache-manager-ioredis-yet');
         const store = await (
           redisStore as (opts: Record<string, unknown>) => Promise<unknown>
@@ -37,6 +37,7 @@ import { CacheModule } from '@nestjs/cache-manager';
         return { store, ttl: 60 * 1000 /* 默认缓存时间 1 分钟 */ };
       },
     }),
+    ExportModule,
     UsersModule,
     AuthModule,
   ],

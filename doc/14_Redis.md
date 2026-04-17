@@ -74,7 +74,7 @@ import { createClient } from 'redis';
       isGlobal: true,  // 全局可用，不需要每个模块单独 import
       inject: [ConfigService],
       useFactory: async (config: ConfigService) => {
-        const store = await import('cache-manager-ioredis-yet')
+        const store = await import('cache-manager-ioredis-yet')// 动态导入 Redis 存储适配器
           .then(m => m.redisStore({
             host: config.get('REDIS_HOST'),
             port: config.get<number>('REDIS_PORT'),

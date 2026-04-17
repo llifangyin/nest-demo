@@ -1,4 +1,4 @@
-# JWT 认证
+# JWT 认证（JSON WEB TOKEN）
 
 > 类比前端：登录后把 token 存 localStorage，请求时带上 token，后端验证是否有效。
 
@@ -17,8 +17,29 @@
 4. 前端存 token，后续请求带 Authorization: Bearer <token>
 5. JwtAuthGuard 拦截请求 → JwtStrategy 验证 token → 有效则放行
 ```
-
 ---
+### 使用流程
+1. AuthModule 实现登录逻辑，生成 token
+   - import: JwtModule.registerAsync方法配置 JWT_SECRET 和过期时间,
+              导入UsersModule 以查询用户
+   - providers: AuthService 处理登录逻辑，JwtStrategy 验证 token
+   - controllers: AuthController 定义登录接口
+   - exports: 导出 AuthService 以供其他模块使用（可选）
+    
+2. JwtStrategy 验证 token，解析 payload （Passport会在每次请求时自动调用 validate 方法）
+    - 继承PassportStrategy(Strategy)，配置从 Authorization header 获取 token 和 JWT_SECRET；
+    - validate 方法验证 token，有效则返回用户信息挂到 request.user
+3. JwtAuthGuard 保护路由，验证 token 是否有效
+  - 继承 AuthGuard('jwt')，使用 JwtStrategy 验证 token，
+  - canActivate 方法会在每次请求时自动调用 JwtStrategy.validate 验证 token; Public() 装饰器标记不需要认证的路由
+3. UserService 创建用户时，bcrypt 加密密码
+  - bcrypt.hash(password, saltRounds) 加密密码，存数据库
+4. 配置全局使用保护路由
+  - 在 AppModule 里全局使用 JwtAuthGuard， providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }]
+  - 或者在需要保护的控制器/路由上使用 @UseGuards(JwtAuthGuard)
+5. 测试登录和访问受保护的路由
+  - 自定义装饰   @Public() 标记不需要认证的路由
+
 
 ## 二、安装依赖
 
