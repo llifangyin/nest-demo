@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import * as path from 'path';
 import { ExportService } from './export.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('export')
 export class ExportController {
@@ -18,8 +19,9 @@ export class ExportController {
     return this.exportService.getTaskStatus(taskId);
   }
   // 下载导出文件
+  @Public()
   @Get('download/:taskId')
-  async downlaod(@Param('taskId') taskId: string, @Res() res: Response) {
+  async download(@Param('taskId') taskId: string, @Res() res: Response) {
     const task = await this.exportService.getTaskStatus(taskId);
     if (!task || task.status !== 'done' || !task.filePath) {
       return res.status(404).json({ message: 'File not found or not ready' });

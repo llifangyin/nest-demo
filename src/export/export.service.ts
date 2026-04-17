@@ -8,10 +8,9 @@ import { ExportTask } from './schemas/export-task.schema';
 @Injectable()
 export class ExportService {
   constructor(
-    @Inject('EXPORT_SERVICE') private readonly client: ClientProxy,
+    @Inject('EXPORT_SERVICE') private readonly client: ClientProxy,// 注入 RabbitMQ 客户端
     @InjectModel(ExportTask.name) private taskModel: Model<ExportTask>,
   ) {}
-
   async triggerExport(filter: { name?: string; email?: string }) {
     const taskId = randomUUID(); // 生成唯一的任务ID
     // 创建导出任务，初始状态为 pending

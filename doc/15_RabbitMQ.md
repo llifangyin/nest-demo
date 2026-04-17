@@ -122,7 +122,10 @@ src/
 │   │                             GET  /export/status/:taskId（查询状态）
 │   │                             GET  /export/download/:taskId（下载文件）
 │   ├── export.service.ts      ← 生产者：创建任务、发消息到队列
+                                triggerExport() 创建任务记录，发消息到 RabbitMQ 队列 （this.client.emit）
 │   ├── export.processor.ts    ← 消费者：监听队列、生成 CSV 文件
+                                  @EventPattern('export_user') 监听队列
+                                  handleExportUsers() 处理消息生成文件
 │   └── schemas/
 │       └── export-task.schema.ts ← MongoDB 任务状态记录
 ```
