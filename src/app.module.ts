@@ -9,6 +9,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ExportModule } from './export/export.module';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ExportModule } from './export/export.module';
       },
     }),
     ExportModule,
+    ProductsModule,
     UsersModule,
     AuthModule,
   ],
