@@ -7,22 +7,32 @@
 
 ## 目录
 
-1. [当前架构分析 — 为什么要拆](#1-当前架构分析)
-2. [目标架构 — 拆成什么样](#2-目标架构)
-3. [第一步：转换为 NestJS Monorepo](#3-第一步转换为-nestjs-monorepo)
-4. [第二步：创建共享库 libs/common](#4-第二步创建共享库-libscommon)
-5. [第三步：创建用户服务 apps/user-service](#5-第三步创建用户服务)
-6. [第四步：创建商品服务 apps/product-service](#6-第四步创建商品服务)
-7. [第五步：创建 API 网关 apps/gateway](#7-第五步创建-api-网关)
-8. [第六步：拆出导出 Worker apps/export-worker](#8-第六步拆出导出-worker)
-9. [第七步：处理原始 apps/nest-demo](#9-第七步处理原始-appsnest-demo)
-10. [第八步：.env 配置](#10-第八步env-配置)
-11. [第九步：启动和测试](#11-第九步启动和测试)
-12. [总结 — 单体 vs 微服务对比](#12-总结)
+**第一部分：总览（先看这里）**
+
+1. [为什么要拆 — 单体的问题](#1-为什么要拆--单体的问题)
+2. [拆成什么样 — 目标架构](#2-拆成什么样--目标架构)
+3. [改了什么、没改什么 — 改造清单](#3-改了什么没改什么--改造清单)
+4. [核心 API 速查 — 关键方法一览](#4-核心-api-速查--关键方法一览)
+5. [各服务职责与通信流程](#5-各服务职责与通信流程)
+
+**第二部分：动手改造（按步骤来）**
+
+6. [第一步：转换为 Monorepo + 创建共享库](#6-第一步转换为-monorepo--创建共享库)
+7. [第二步：创建用户服务 user-service](#7-第二步创建用户服务-user-service)
+8. [第三步：创建商品服务 product-service](#8-第三步创建商品服务-product-service)
+9. [第四步：创建 API 网关 gateway](#9-第四步创建-api-网关-gateway)
+10. [第五步：拆出导出 Worker export-worker](#10-第五步拆出导出-worker-export-worker)
+11. [第六步：处理原始 apps/nest-demo](#11-第六步处理原始-appsnest-demo)
+12. [第七步：.env 配置](#12-第七步env-配置)
+13. [第八步：启动和测试](#13-第八步启动和测试)
 
 ---
 
-## 1. 当前架构分析
+# 第一部分：总览
+
+---
+
+## 1. 为什么要拆 — 单体的问题
 
 ### 你现在的项目结构（单体）
 
@@ -53,7 +63,7 @@ nest-demo/src/
 
 ---
 
-## 2. 目标架构
+## 2. 拆成什么样 — 目标架构
 
 ```
                     前端 (nest-web)
@@ -79,22 +89,249 @@ nest-demo/src/
          └───────────────┘
 ```
 
+### 最终目录结构
+
+```
+nest-demo/
+├── .env                       ← 所有服务共享的环境变量
+├── package.json
+├── nest-cli.json              ← monorepo 配置
+├── apps/
+│   ├── nest-demo/             ← 原始单体应用（保留参考，不再启动）
+│   ├── gateway/               ← API 网关（HTTP 3000）
+│   ├── user-service/          ← 用户微服务（TCP 3001）
+│   ├── product-service/       ← 商品微服务（TCP 3002）
+│   └── export-worker/         ← 导出消费者（RabbitMQ）
+└── libs/
+    └── common/                ← 共享库（DTO、Schema、常量）
+```
+
 ### 通信方式选择
 
 | 方式 | 适用场景 | 本项目用在 |
 |------|---------|-----------|
 | **TCP** | 服务间同步调用，低延迟 | Gateway → User/Product Service |
-| **RabbitMQ** | 异步任务，不需要等结果 | User Service → Export Worker |
+| **RabbitMQ** | 异步任务，不需要等结果 | Gateway → Export Worker |
 
 > **为什么不全用 HTTP？** TCP 是 NestJS 微服务内置的传输层，比 HTTP 更轻量，没有 HTTP 头的开销，适合内部服务间通信。
 
 ---
 
-## 3. 第一步：转换为 NestJS Monorepo
+## 3. 改了什么、没改什么 — 改造清单
 
-NestJS CLI 支持 Monorepo 模式 —— 多个应用共享一套 `node_modules` 和配置。
+### 一句话总结
 
-### 3.1 生成 Monorepo 结构
+> **数据层（Schema/DAO）和业务层（Service）基本不动，只改入口（main.ts）、控制层（Controller）和模块注册（Module）。前端零改动。**
+
+### 逐层对比
+
+| 层 | 改了？ | 怎么改 |
+|----|--------|--------|
+| **Schema / DAO** | ❌ 没改 | 原封不动复制到各服务（或 libs/common），只改 import 路径 |
+| **Service** | ❌ 基本没改 | 业务逻辑不变，去掉缓存（缓存交给网关），改 import 路径 |
+| **Controller** | ✅ 改了 | 微服务端：`@Get()` → `@MessagePattern()`，`@Body()` → `@Payload()`<br>网关端：新写 Controller，用 `ClientProxy.send()` 转发 |
+| **Module** | ✅ 改了 | 每个服务独立 Module，网关注册 `ClientsModule` 连接各服务 |
+| **main.ts** | ✅ 改了 | 微服务：`NestFactory.create()` → `NestFactory.createMicroservice()`<br>网关：保持 `NestFactory.create()`（仍是 HTTP） |
+| **前端** | ❌ 没改 | 网关保持 `localhost:3000` 和原来的路由，前端完全无感知 |
+
+### 单体 vs 微服务对比
+
+| | 单体（改造前） | 微服务（改造后） |
+|--|---|---|
+| 进程数 | 1 个 | 4 个（gateway + user + product + export） |
+| 通信方式 | 函数调用 | TCP / RabbitMQ |
+| 部署 | 整体部署 | 各服务独立部署 |
+| 扩容 | 整体扩容 | 按需扩容（商品流量大就多起几个 product-service） |
+| 开发体验 | 简单直接 | 需要同时启动多个服务 |
+| 适用场景 | 小项目、初期 | 大项目、团队多、流量大 |
+
+---
+
+## 4. 核心 API 速查 — 关键方法一览
+
+### 4.1 装饰器对比（单体 → 微服务）
+
+| HTTP (单体 Controller) | TCP 微服务 Controller | 说明 |
+|---|---|---|
+| `@Get()` / `@Post()` / `@Put()` / `@Delete()` | `@MessagePattern({ cmd: 'xxx' })` | 同步请求-响应 |
+| `@Body()` | `@Payload()` | 获取请求数据 |
+| `@Param('id')` | `@Payload() data` → `data.id` | 参数通过 payload 传递 |
+| — | `@EventPattern('xxx')` | 异步事件（不需要响应） |
+
+### 4.2 网关转发请求
+
+```typescript
+// 注入微服务客户端
+@Inject('USER_SERVICE') private client: ClientProxy
+
+// send() — 同步请求响应（等返回值），类似 axios.get()
+const users = await firstValueFrom(
+  this.client.send({ cmd: 'find_all_users' }, payload)
+);
+
+// emit() — 异步事件（不等返回值），类似 EventBus.$emit()
+this.client.emit('export_user', payload);
+```
+
+### 4.3 微服务接收请求
+
+```typescript
+// 对应 send()  — 同步，必须 return 结果
+@MessagePattern({ cmd: 'find_all_users' })
+findAll(@Payload() data) { return this.service.findAll(); }
+
+// 对应 emit() — 异步，不需要 return
+@EventPattern('export_user')
+handleExport(@Payload() data) { /* 处理导出 */ }
+```
+
+### 4.4 网关注册微服务客户端
+
+```typescript
+// TCP 客户端（同步调用）
+ClientsModule.register([{
+  name: 'USER_SERVICE',
+  transport: Transport.TCP,
+  options: { host: 'localhost', port: 3001 },
+}])
+
+// RabbitMQ 客户端（异步事件）
+ClientsModule.registerAsync([{
+  name: 'EXPORT_SERVICE',
+  useFactory: (config) => ({
+    transport: Transport.RMQ,
+    options: { urls: [config.get('RABBITMQ_URL')], queue: 'export_queue' },
+  }),
+}])
+```
+
+### 4.5 微服务入口启动
+
+```typescript
+// TCP 微服务
+NestFactory.createMicroservice(Module, {
+  transport: Transport.TCP,
+  options: { host: '0.0.0.0', port: 3001 },
+});
+
+// RabbitMQ 微服务
+NestFactory.createMicroservice(Module, {
+  transport: Transport.RMQ,
+  options: { urls: ['amqp://...'], queue: 'export_queue' },
+});
+```
+
+---
+
+## 5. 各服务职责与通信流程
+
+### 5.1 四个服务各自干什么
+
+| 服务 | 类型 | 端口 | 职责 |
+|------|------|------|------|
+| **gateway** | HTTP 服务 | 3000 | 唯一对外入口，JWT 鉴权，转发请求，导出任务触发/状态查询 |
+| **user-service** | TCP 微服务 | 3001 | 用户 CRUD + findByName（含密码，给登录用） |
+| **product-service** | TCP 微服务 | 3002 | 商品 CRUD |
+| **export-worker** | RabbitMQ 消费者 | 无 | 消费导出消息，查库生成 CSV |
+
+### 5.2 请求链路
+
+#### 普通 CRUD 请求（以查商品为例）
+
+```
+前端: GET /proxy/products
+  │
+  ▼ Umi 代理
+http://localhost:3000/products
+  │
+  ▼ 网关 ProductsController
+this.productClient.send({ cmd: 'find_all_products' }, { name })
+  │
+  ▼ TCP 传输
+Product Service (端口 3002)
+  │
+  ▼ @MessagePattern({ cmd: 'find_all_products' })
+ProductsService.findAll()
+  │
+  ▼ Mongoose
+MongoDB
+  │
+  ▼ 原路返回
+前端拿到商品列表
+```
+
+#### 登录请求
+
+```
+前端: POST /proxy/auth/login { name, password }
+  │
+  ▼ Umi 代理
+网关 AuthController.login()
+  │
+  ├─ 1. this.userClient.send({ cmd: 'find_user_by_name' }, { name })
+  │      → user-service 查用户（带 password）
+  │      ← 返回用户对象
+  │
+  └─ 2. this.authService.login(user, password)
+         → bcrypt.compare 校验密码
+         → jwtService.sign() 签发 JWT
+         ← 返回 { access_token }
+```
+
+#### 导出请求（异步）
+
+```
+前端: POST /proxy/export/users
+  │
+  ▼ Umi 代理
+网关 ExportController.triggerExport()
+  │
+  ├─ 1. 创建 ExportTask（status: pending）写入 MongoDB
+  └─ 2. this.client.emit('export_user', { taskId, filter })
+         → RabbitMQ 发消息（不等返回）
+         ← 立即返回 { taskId, message: '导出任务已创建' }
+
+                    ↓ 异步
+
+Export Worker 收到消息
+  │
+  ├─ 更新 ExportTask → processing
+  ├─ UserDao.findAll() → 查 MongoDB
+  ├─ 生成 CSV 文件
+  └─ 更新 ExportTask → done + filePath
+```
+
+### 5.3 共享库 libs/common 放什么
+
+```
+libs/common/src/
+├── index.ts                   ← 统一导出
+├── constants.ts               ← 服务名(USER_SERVICE)、端口(3001)、队列名
+├── dto/                       ← 所有 DTO（CreateUserDto、UpdateProductDto...）
+└── schemas/                   ← 所有 Mongoose Schema（User、Product、ExportTask）
+```
+
+任何服务都可以 `import { User, CreateUserDto, USER_SERVICE } from '@app/common'`。
+
+### 5.4 注意事项
+
+| 要点 | 说明 |
+|------|------|
+| **findByName 要返回密码** | 网关登录需要 bcrypt 比对，user-service 的 DAO 里 `findByName` 要加 `.select('+password')`，Schema 里 password 加 `select: false` 默认隐藏 |
+| **微服务 Service 不需要缓存** | 缓存职责交给网关层，微服务直接查库，保持简单 |
+| **export-worker 直接查库** | 不走 TCP 调 user-service，直接用 UserDao 查 MongoDB（共享同一个数据库） |
+| **.env 放在项目根目录** | Monorepo 所有 app 的工作目录都是根目录，一个 `.env` 所有服务共享 |
+| **前端零改动** | 网关保持 `localhost:3000`，路由路径不变 |
+
+---
+
+# 第二部分：动手改造
+
+---
+
+## 6. 第一步：转换为 Monorepo + 创建共享库
+
+### 6.1 生成 Monorepo 结构
 
 在 `nest-demo/` 目录下执行：
 
@@ -125,7 +362,7 @@ nest-demo/
 └── package.json
 ```
 
-### 3.2 查看更新后的 nest-cli.json
+### 6.2 查看更新后的 nest-cli.json
 
 CLI 会自动把 `nest-cli.json` 改成这样：
 
@@ -163,7 +400,7 @@ CLI 会自动把 `nest-cli.json` 改成这样：
 }
 ```
 
-### 3.3 继续生成其他子应用
+### 6.3 继续生成其他子应用
 
 ```bash
 nest generate app user-service
@@ -171,30 +408,12 @@ nest generate app product-service
 nest generate app export-worker
 ```
 
-现在 `apps/` 下有 5 个应用：
-
-```
-apps/
-├── nest-demo/          ← 原始应用（之后会删掉或当参考）
-├── gateway/            ← API 网关
-├── user-service/       ← 用户微服务
-├── product-service/    ← 商品微服务
-└── export-worker/      ← 导出消费者
-```
-
----
-
-## 4. 第二步：创建共享库 libs/common
-
-多个服务都需要用到的东西（DTO、常量、接口），放到共享库里。
-
-### 4.1 生成共享库
+### 6.4 生成共享库
 
 ```bash
 nest generate library common
+# prefix 直接回车用默认的 @app
 ```
-
-选择 prefix 时直接回车用默认的 `@app`。
 
 生成结构：
 
@@ -207,7 +426,20 @@ libs/
     └── tsconfig.lib.json
 ```
 
-### 4.2 往 libs/common 里放共享代码
+`nest generate library` 会自动在根 `tsconfig.json` 里加路径映射：
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@app/common": ["libs/common/src"],
+      "@app/common/*": ["libs/common/src/*"]
+    }
+  }
+}
+```
+
+### 6.5 往 libs/common 里放共享代码
 
 把多个服务都需要的东西移过来：
 
@@ -256,30 +488,23 @@ export * from './dto/create-product.dto';
 export * from './dto/update-product.dto';
 ```
 
-### 4.3 tsconfig.json 路径映射
+#### User Schema — password 加默认隐藏
 
-`nest generate library` 会自动在根 `tsconfig.json` 里加路径映射：
-
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@app/common": ["libs/common/src"],
-      "@app/common/*": ["libs/common/src/*"]
-    }
-  }
-}
+```typescript
+// libs/common/src/schemas/user.schema.ts
+@Prop({ required: true, select: false })  // select: false → 查询默认不返回
+password: string;
 ```
 
-这样任何服务都可以用 `import { User } from '@app/common'` 引入共享代码。
+这样普通查询（findAll、findById）不会泄露密码，只有显式 `.select('+password')` 才返回。
 
 ---
 
-## 5. 第三步：创建用户服务
+## 7. 第二步：创建用户服务 user-service
 
 用户服务是一个 **TCP 微服务**，不直接对外暴露 HTTP，只接受网关的 TCP 调用。
 
-### 5.1 apps/user-service/src/main.ts
+### 7.1 apps/user-service/src/main.ts
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
@@ -314,7 +539,7 @@ bootstrap();
 | `app.listen(3000)` | `app.listen()` (TCP 不用指定端口，在 options 里配了) |
 | 前端直接访问 | 只有网关能访问 |
 
-### 5.2 apps/user-service/src/user-service.module.ts
+### 7.2 apps/user-service/src/user-service.module.ts
 
 ```typescript
 import { Module } from '@nestjs/common';
@@ -342,7 +567,7 @@ import { UsersService } from './users.service';
 export class UserServiceModule {}
 ```
 
-### 5.3 apps/user-service/src/user-service.controller.ts
+### 7.3 apps/user-service/src/user-service.controller.ts
 
 **核心变化**：HTTP 装饰器 → 微服务装饰器
 
@@ -356,9 +581,6 @@ import { CreateUserDto, UpdateUserDto } from '@app/common';
 export class UserServiceController {
   constructor(private readonly usersService: UsersService) {}
 
-  // 原来: @Get()
-  // 现在: @MessagePattern({ cmd: 'find_all_users' })
-  // 网关发 { cmd: 'find_all_users' } 消息，这里就会响应
   @MessagePattern({ cmd: 'find_all_users' })
   findAll(@Payload() data: { name?: string; email?: string }) {
     return this.usersService.findAll(data.name, data.email);
@@ -393,43 +615,15 @@ export class UserServiceController {
 }
 ```
 
-**装饰器对比**：
+### 7.4 Service 和 DAO 层
 
-| HTTP (单体) | TCP 微服务 | 说明 |
-|-------------|-----------|------|
-| `@Get()` | `@MessagePattern({ cmd: 'xxx' })` | 同步请求-响应 |
-| `@Post()` | `@MessagePattern({ cmd: 'xxx' })` | 同步请求-响应 |
-| `@Body()` | `@Payload()` | 获取请求数据 |
-| `@Param('id')` | `@Payload() data` → `data.id` | 参数通过 payload 传递 |
-| - | `@EventPattern('xxx')` | 异步事件（不需要响应） |
+Service 和 DAO 的代码**几乎不需要改**，直接从原来的 `src/users/` 复制过来。
 
-### 5.4 Service 和 DAO 层
+唯一改动：
 
-Service 和 DAO 的代码**几乎不需要改**，直接从原来的 `src/users/` 复制过来：
-
-```
-apps/user-service/src/
-├── main.ts
-├── user-service.module.ts
-├── user-service.controller.ts   ← 改用 @MessagePattern
-├── users.service.ts             ← 基本不变（复制过来）
-└── dao/
-    └── user.dao.ts              ← 完全不变（复制过来）
-```
-
-唯一的区别是 import 路径：
-
-```typescript
-// 原来（单体）
-import { User } from '../schemas/user.schema';
-
-// 现在（微服务）
-import { User } from '@app/common';
-```
-
-### 5.5 注意：findByName 需要返回密码
-
-网关登录时需要密码做 bcrypt 比较，所以 user-service 的 `findByName` 必须带 password：
+1. **import 路径**：`import { User } from '../schemas/user.schema'` → `import { User } from '@app/common'`
+2. **去掉缓存**：Service 里删除 `CACHE_MANAGER` 相关代码，直接查库
+3. **findByName 加密码查询**：
 
 ```typescript
 // apps/user-service/src/dao/user.dao.ts 中
@@ -439,23 +633,25 @@ findByName(name: string): Promise<User | null> {
 }
 ```
 
-同时，共享库的 User Schema 建议给 password 加默认隐藏：
+### 7.5 目录结构
 
-```typescript
-// libs/common/src/schemas/user.schema.ts
-@Prop({ required: true, select: false })  // select: false → 查询默认不返回
-password: string;
 ```
-
-这样普通查询（findAll、findById）不会泄露密码，只有显式 `.select('+password')` 才返回。
+apps/user-service/src/
+├── main.ts
+├── user-service.module.ts
+├── user-service.controller.ts   ← 改用 @MessagePattern
+├── users.service.ts             ← 基本不变（去掉缓存）
+└── dao/
+    └── user.dao.ts              ← 基本不变（findByName 加 select password）
+```
 
 ---
 
-## 6. 第四步：创建商品服务
+## 8. 第三步：创建商品服务 product-service
 
 和用户服务结构完全一样，改个端口和模块名就行。
 
-### 6.1 apps/product-service/src/main.ts
+### 8.1 apps/product-service/src/main.ts
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
@@ -480,7 +676,35 @@ async function bootstrap() {
 bootstrap();
 ```
 
-### 6.2 apps/product-service/src/product-service.controller.ts
+### 8.2 apps/product-service/src/product-service.module.ts
+
+```typescript
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Product, ProductSchema } from '@app/common';
+import { ProductServiceController } from './product-service.controller';
+import { ProductDao } from './dao/product.dao';
+import { ProductsService } from './products.service';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        uri: config.get<string>('MONGODB_URI'),
+      }),
+    }),
+    MongooseModule.forFeature([{ name: Product.name, schema: ProductSchema }]),
+  ],
+  controllers: [ProductServiceController],
+  providers: [ProductsService, ProductDao],
+})
+export class ProductServiceModule {}
+```
+
+### 8.3 apps/product-service/src/product-service.controller.ts
 
 ```typescript
 import { Controller } from '@nestjs/common';
@@ -519,35 +743,7 @@ export class ProductServiceController {
 }
 ```
 
-### 6.3 apps/product-service/src/product-service.module.ts
-
-```typescript
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
-import { Product, ProductSchema } from '@app/common';
-import { ProductServiceController } from './product-service.controller';
-import { ProductDao } from './dao/product.dao';
-import { ProductsService } from './products.service';
-
-@Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    MongooseModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        uri: config.get<string>('MONGODB_URI'),
-      }),
-    }),
-    MongooseModule.forFeature([{ name: Product.name, schema: ProductSchema }]),
-  ],
-  controllers: [ProductServiceController],
-  providers: [ProductsService, ProductDao],
-})
-export class ProductServiceModule {}
-```
-
-### 6.4 目录结构
+### 8.4 目录结构
 
 ```
 apps/product-service/src/
@@ -561,14 +757,14 @@ apps/product-service/src/
 
 ---
 
-## 7. 第五步：创建 API 网关
+## 9. 第四步：创建 API 网关 gateway
 
 网关是**唯一对外暴露 HTTP 的服务**，负责：
 1. 接收前端 HTTP 请求
-2. 转发给对应的微服务（TCP）
+2. 转发给对应的微服务（TCP / RabbitMQ）
 3. JWT 鉴权（认证逻辑放在网关）
 
-### 7.1 apps/gateway/src/main.ts
+### 9.1 apps/gateway/src/main.ts
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
@@ -586,7 +782,7 @@ async function bootstrap() {
 bootstrap();
 ```
 
-### 7.2 apps/gateway/src/gateway.module.ts
+### 9.2 apps/gateway/src/gateway.module.ts
 
 ```typescript
 import { Module } from '@nestjs/common';
@@ -595,16 +791,23 @@ import { APP_GUARD } from '@nestjs/core';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { MongooseModule } from '@nestjs/mongoose';
 import {
   USER_SERVICE,
   PRODUCT_SERVICE,
   USER_SERVICE_PORT,
   PRODUCT_SERVICE_PORT,
+  ExportTask,
+  ExportTaskSchema,
+  EXPORT_SERVICE,
+  EXPORT_QUEUE,
 } from '@app/common';
 import { UsersController } from './controllers/users.controller';
 import { ProductsController } from './controllers/products.controller';
 import { AuthController } from './controllers/auth.controller';
+import { ExportController } from './controllers/export.controller';
 import { AuthService } from './auth/auth.service';
+import { ExportService } from './services/export.service';
 import { JwtStrategy } from './auth/jwt.strategy';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 
@@ -617,34 +820,56 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('JWT_SECRET')!,
         signOptions: {
-          expiresIn: config.get('JWT_EXPIRES_IN', '7d'),
+          expiresIn: config.get('JWT_EXPIRES_IN', '7d') as any,
         },
       }),
     }),
 
-    // 注册微服务客户端 — 告诉网关怎么连接各个服务
+    // MongoDB — 网关直接查 ExportTask 状态
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        uri: config.get<string>('MONGODB_URI'),
+      }),
+    }),
+    MongooseModule.forFeature([
+      { name: ExportTask.name, schema: ExportTaskSchema },
+    ]),
+
+    // TCP 客户端 — 连接 user-service 和 product-service
     ClientsModule.register([
       {
-        name: USER_SERVICE,           // 注入 token
+        name: USER_SERVICE,
         transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: USER_SERVICE_PORT,    // 3001
-        },
+        options: { host: 'localhost', port: USER_SERVICE_PORT },
       },
       {
-        name: PRODUCT_SERVICE,        // 注入 token
+        name: PRODUCT_SERVICE,
         transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PRODUCT_SERVICE_PORT, // 3002
-        },
+        options: { host: 'localhost', port: PRODUCT_SERVICE_PORT },
+      },
+    ]),
+
+    // RabbitMQ 客户端 — 连接 export-worker
+    ClientsModule.registerAsync([
+      {
+        name: EXPORT_SERVICE,
+        inject: [ConfigService],
+        useFactory: (config: ConfigService) => ({
+          transport: Transport.RMQ,
+          options: {
+            urls: [config.get<string>('RABBITMQ_URL')!],
+            queue: EXPORT_QUEUE,
+            queueOptions: { durable: true },
+          },
+        }),
       },
     ]),
   ],
-  controllers: [AuthController, UsersController, ProductsController],
+  controllers: [AuthController, UsersController, ProductsController, ExportController],
   providers: [
     AuthService,
+    ExportService,
     JwtStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
@@ -652,9 +877,9 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 export class GatewayModule {}
 ```
 
-### 7.3 网关的 Controller — 转发请求
+### 9.3 网关 Controllers — 转发请求
 
-**核心概念**：网关 Controller 不直接操作数据库，而是通过 `ClientProxy.send()` 把请求转发给微服务。
+网关 Controller **不直接操作数据库**，而是通过 `ClientProxy.send()` 转发给微服务。
 
 #### apps/gateway/src/controllers/users.controller.ts
 
@@ -676,7 +901,6 @@ export class UsersController {
 
   @Get()
   async findAll(@Query('name') name?: string, @Query('email') email?: string) {
-    // send() 返回 Observable，用 firstValueFrom 转成 Promise
     return firstValueFrom(
       this.userClient.send({ cmd: 'find_all_users' }, { name, email }),
     );
@@ -716,21 +940,6 @@ export class UsersController {
     );
   }
 }
-```
-
-**关键知识点**：
-
-```typescript
-// send() — 同步请求-响应模式（等结果）
-this.userClient.send({ cmd: 'find_all_users' }, payload)
-
-// emit() — 异步事件模式（不等结果）
-this.userClient.emit('export_user', payload)
-```
-
-```
-send() 就像 axios.get() — 发请求，等响应
-emit() 就像 EventBus.$emit() — 发事件，不管结果
 ```
 
 #### apps/gateway/src/controllers/products.controller.ts
@@ -807,7 +1016,7 @@ export class AuthController {
   @Public()
   @Post('login')
   async login(@Body() body: { name: string; password: string }) {
-    // 1. 从用户服务查询用户
+    // 1. 从用户服务查询用户（带密码）
     const user = await firstValueFrom(
       this.userClient.send({ cmd: 'find_user_by_name' }, { name: body.name }),
     );
@@ -817,7 +1026,45 @@ export class AuthController {
 }
 ```
 
-### 7.4 网关的 Auth 模块
+#### apps/gateway/src/controllers/export.controller.ts
+
+```typescript
+import { Controller, Get, Post, Body, Param, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import * as path from 'path';
+import { ExportService } from '../services/export.service';
+import { Public } from '../auth/decorators/public.decorator';
+
+@Controller('export')
+export class ExportController {
+  constructor(private readonly exportService: ExportService) {}
+
+  @Post('users')
+  triggerExport(@Body() filter: { name?: string; email?: string }) {
+    return this.exportService.triggerExport(filter);
+  }
+
+  @Get('status/:taskId')
+  getTaskStatus(@Param('taskId') taskId: string) {
+    return this.exportService.getTaskStatus(taskId);
+  }
+
+  @Public()
+  @Get('download/:taskId')
+  async download(@Param('taskId') taskId: string, @Res() res: Response) {
+    const task = await this.exportService.getTaskStatus(taskId);
+    if (!task || task.status !== 'done' || !task.filePath) {
+      return res.status(404).json({ message: 'File not found or not ready' });
+    }
+    const fileName = path.basename(task.filePath);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'text/csv');
+    res.sendFile(task.filePath);
+  }
+}
+```
+
+### 9.4 网关的 Auth 模块
 
 认证逻辑放在网关，因为网关是唯一对外的服务。
 
@@ -873,60 +1120,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
 和原来的完全一样，直接复制过来。
 
-### 7.5 网关的导出 Controller
-
-别忘了导出功能！原来的 `ExportController` 处理：触发导出、查状态、下载文件。拆微服务后，这些 HTTP 接口仍然放在网关，网关通过 RabbitMQ 发消息给 export-worker。
-
-#### 修改 gateway.module.ts — 补充 RabbitMQ 客户端和 ExportTask Model
+### 9.5 网关的 Export Service
 
 ```typescript
-// 在 gateway.module.ts 的 imports 中补充：
-import { MongooseModule } from '@nestjs/mongoose';
-import { ExportTask, ExportTaskSchema, EXPORT_SERVICE, EXPORT_QUEUE } from '@app/common';
-import { ExportController } from './controllers/export.controller';
-import { ExportService } from './services/export.service';
-
-@Module({
-  imports: [
-    // ... 之前的 ConfigModule, PassportModule, JwtModule, ClientsModule ...
-
-    // 补充：网关需要直接查 ExportTask 状态（不需要走微服务中转）
-    MongooseModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        uri: config.get<string>('MONGODB_URI'),
-      }),
-    }),
-    MongooseModule.forFeature([
-      { name: ExportTask.name, schema: ExportTaskSchema },
-    ]),
-
-    // 补充：RabbitMQ 客户端（用于发送导出消息给 export-worker）
-    ClientsModule.registerAsync([
-      {
-        name: EXPORT_SERVICE,
-        inject: [ConfigService],
-        useFactory: (config: ConfigService) => ({
-          transport: Transport.RMQ,
-          options: {
-            urls: [config.get<string>('RABBITMQ_URL')!],
-            queue: EXPORT_QUEUE,
-            queueOptions: { durable: true },
-          },
-        }),
-      },
-    ]),
-  ],
-  // controllers 数组中加上 ExportController
-  controllers: [AuthController, UsersController, ProductsController, ExportController],
-  // providers 数组中加上 ExportService
-  providers: [AuthService, JwtStrategy, ExportService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
-})
-```
-
-#### apps/gateway/src/services/export.service.ts
-
-```typescript
+// apps/gateway/src/services/export.service.ts
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectModel } from '@nestjs/mongoose';
@@ -956,45 +1153,7 @@ export class ExportService {
 }
 ```
 
-#### apps/gateway/src/controllers/export.controller.ts
-
-```typescript
-import { Controller, Get, Post, Body, Param, Res } from '@nestjs/common';
-import type { Response } from 'express';
-import * as path from 'path';
-import { ExportService } from '../services/export.service';
-import { Public } from '../auth/decorators/public.decorator';
-
-@Controller('export')
-export class ExportController {
-  constructor(private readonly exportService: ExportService) {}
-
-  @Post('users')
-  triggerExport(@Body() filter: { name?: string; email?: string }) {
-    return this.exportService.triggerExport(filter);
-  }
-
-  @Get('status/:taskId')
-  getTaskStatus(@Param('taskId') taskId: string) {
-    return this.exportService.getTaskStatus(taskId);
-  }
-
-  @Public()
-  @Get('download/:taskId')
-  async download(@Param('taskId') taskId: string, @Res() res: Response) {
-    const task = await this.exportService.getTaskStatus(taskId);
-    if (!task || task.status !== 'done' || !task.filePath) {
-      return res.status(404).json({ message: 'File not found or not ready' });
-    }
-    const fileName = path.basename(task.filePath);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Type', 'text/csv');
-    res.sendFile(task.filePath);
-  }
-}
-```
-
-### 7.6 网关目录结构总览
+### 9.6 网关目录结构总览
 
 ```
 apps/gateway/src/
@@ -1017,11 +1176,11 @@ apps/gateway/src/
 
 ---
 
-## 8. 第六步：拆出导出 Worker
+## 10. 第五步：拆出导出 Worker export-worker
 
 导出 Worker 是纯 RabbitMQ 消费者，不需要 HTTP 也不需要 TCP。
 
-### 8.1 apps/export-worker/src/main.ts
+### 10.1 apps/export-worker/src/main.ts
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
@@ -1049,7 +1208,7 @@ async function bootstrap() {
 bootstrap();
 ```
 
-### 8.2 apps/export-worker/src/export-worker.module.ts
+### 10.2 apps/export-worker/src/export-worker.module.ts
 
 ```typescript
 import { Module } from '@nestjs/common';
@@ -1082,9 +1241,7 @@ import { UserDao } from './dao/user.dao';
 export class ExportWorkerModule {}
 ```
 
-### 8.3 apps/export-worker/src/export.processor.ts
-
-和原来的 `src/export/export.processor.ts` 基本一样，只是 import 路径改用 `@app/common`：
+### 10.3 apps/export-worker/src/export.processor.ts
 
 ```typescript
 import { Controller } from '@nestjs/common';
@@ -1093,7 +1250,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ExportTask } from '@app/common';  // ← 改这里
+import { ExportTask } from '@app/common';
 import { UserDao } from './dao/user.dao';
 
 @Controller()
@@ -1134,9 +1291,7 @@ export class ExportProcessor {
 }
 ```
 
-### 8.4 export-worker 的 UserDao
-
-export-worker 需要查询用户数据生成 CSV，所以要有自己的 UserDao（从 user-service 复制过来）：
+### 10.4 export-worker 的目录结构
 
 ```
 apps/export-worker/src/
@@ -1151,7 +1306,7 @@ apps/export-worker/src/
 
 ---
 
-## 9. 第七步：处理原始 apps/nest-demo
+## 11. 第六步：处理原始 apps/nest-demo
 
 转 monorepo 后，原来的代码自动移到了 `apps/nest-demo/`。现在各微服务都写好了，这个原始应用需要处理。
 
@@ -1201,7 +1356,7 @@ rm -rf apps/nest-demo
 
 ---
 
-## 10. 第八步：.env 配置
+## 12. 第七步：.env 配置
 
 ### .env 文件放在哪？
 
@@ -1241,9 +1396,9 @@ PORT=3000
 
 ---
 
-## 11. 第九步：启动和测试
+## 13. 第八步：启动和测试
 
-### 11.1 添加启动脚本到 package.json
+### 13.1 添加启动脚本到 package.json
 
 ```json
 {
@@ -1256,7 +1411,7 @@ PORT=3000
 }
 ```
 
-### 11.2 启动顺序
+### 13.2 启动顺序
 
 **开 4 个终端**，分别执行：
 
@@ -1274,7 +1429,7 @@ npm run start:export
 npm run start:gateway
 ```
 
-### 11.3 测试
+### 13.3 测试
 
 前端**不需要任何改动** —— 因为网关还是跑在 `localhost:3000`，接口路径也没变。
 
@@ -1289,82 +1444,6 @@ curl http://localhost:3000/products
 curl -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
   -d '{"name": "test", "password": "123456"}'
-```
-
-### 11.4 请求链路可视化
-
-```
-前端: GET /proxy/products
-  │
-  ▼ Umi 代理
-http://localhost:3000/products
-  │
-  ▼ 网关 ProductsController
-this.productClient.send({ cmd: 'find_all_products' }, { name })
-  │
-  ▼ TCP 传输
-Product Service (端口 3002)
-  │
-  ▼ @MessagePattern({ cmd: 'find_all_products' })
-ProductsService.findAll()
-  │
-  ▼ Mongoose
-MongoDB
-  │
-  ▼ 原路返回
-前端拿到商品列表
-```
-
----
-
-## 12. 总结
-
-### 单体 vs 微服务对比
-
-| | 单体（你之前的） | 微服务（你现在的） |
-|--|---|---|
-| 进程数 | 1 个 | 4 个（gateway + user + product + export） |
-| 通信方式 | 函数调用 | TCP / RabbitMQ |
-| 部署 | 整体部署 | 各服务独立部署 |
-| 扩容 | 整体扩容 | 按需扩容（商品流量大就多起几个 product-service） |
-| 开发体验 | 简单直接 | 需要同时启动多个服务 |
-| 适用场景 | 小项目、初期 | 大项目、团队多、流量大 |
-
-### 改造过程中改了什么、没改什么
-
-| 层 | 改了？ | 说明 |
-|----|--------|------|
-| Schema / DAO | ❌ 没改 | 数据层完全不变，移到 libs/common 统一管理 |
-| Service | ❌ 基本没改 | 业务逻辑不变，只是 import 路径变了 |
-| Controller | ✅ 改了 | HTTP 装饰器 → @MessagePattern（微服务端）；网关 Controller 用 ClientProxy.send() 转发 |
-| Module | ✅ 改了 | 每个服务独立 Module，网关注册 ClientsModule |
-| main.ts | ✅ 改了 | 每个服务自己的入口，不同的启动方式 |
-| 前端 | ❌ 没改 | 网关保持原来的端口和路由，前端无感知 |
-
-### 核心 API 速查
-
-```typescript
-// 1. 注册微服务客户端（网关 Module 里）
-ClientsModule.register([{
-  name: 'USER_SERVICE',
-  transport: Transport.TCP,
-  options: { host: 'localhost', port: 3001 },
-}])
-
-// 2. 网关 Controller 里转发请求
-@Inject('USER_SERVICE') private client: ClientProxy
-
-// send() — 同步请求响应（等返回值）
-const users = await firstValueFrom(
-  this.client.send({ cmd: 'find_all_users' }, payload)
-);
-
-// emit() — 异步事件（不等返回值）
-this.client.emit('export_user', payload);
-
-// 3. 微服务 Controller 里接收请求
-@MessagePattern({ cmd: 'find_all_users' })   // 对应 send()
-@EventPattern('export_user')                  // 对应 emit()
 ```
 
 ---

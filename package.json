@@ -35,6 +35,8 @@
     "@nestjs/mongoose": "^11.0.4",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/terminus": "^11.1.1",
+    "@nestjs/throttler": "^6.5.0",
     "amqp-connection-manager": "^5.0.0",
     "amqplib": "^1.0.3",
     "bcrypt": "^6.0.0",
