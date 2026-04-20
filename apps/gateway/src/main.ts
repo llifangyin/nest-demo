@@ -1,17 +1,53 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { GatewayModule } from './gateway.module';
+import { FileLogger } from './logger/file-logger';
 
-// 网关是**唯一对外暴露 HTTP 的服务**，负责：
-// 1. 接收前端 HTTP 请求
-// 2. 转发给对应的微服务（TCP）
-// 3. JWT 鉴权（认证逻辑放在网关）
 async function bootstrap() {
-  const app = await NestFactory.create(GatewayModule);
-  app.enableCors();// 允许跨域请求
-  //全局使用 ValidationPipe，并启用 whitelist 选项，自动过滤掉 DTO 中未定义的属性
+  const logger = new FileLogger();
+  const app = await NestFactory.create(GatewayModule, { logger });
+  app.enableCors();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
-  await app.listen(process.env.port ?? 3000);
-  console.log(`Gateway is listening on port ${process.env.port ?? 3000}`);
+  const port = process.env.port ?? 3000;
+  await app.listen(port);
+
+  const blue  = '\x1b[34m';
+  const cyan  = '\x1b[36m';
+  const gold  = '\x1b[33m';
+  const reset = '\x1b[0m';
+  const bold  = '\x1b[1m';
+
+  console.log(`
+${blue}${bold}╔════════════════════════════════════════╗
+║          API GATEWAY  ONLINE           ║
+╚════════════════════════════════════════╝${reset}
+${cyan}  ► HTTP   : http://localhost:${port}
+  ► 模式    : JWT 鉴权 + 限流 + 健康检查
+  ► 健康检查: http://localhost:${port}/health${reset}
+`);
+
+  console.log(`${gold}${bold}
+                       _ooOoo_
+                      o8888888o
+                      88" . "88
+                      (| -_- |)
+                      O\\  =  /O
+                   ____/\`---'\\____
+                 .'  \\|     |//  \`.
+                /  \\|||  :  |||//  \\
+               /  _||||| -:- |||||-  \\
+               |   | \\\\  -  /// |   |
+               | \\_|  ''\`---/''  |   |
+               \\  .-\\__  \`-\`  ___/-. /
+             ___\`. .'  /--.--\\  \`. . __
+          ."" '<  \`.___\\_<|>_/___.'  >'""
+         | | :  \`- \\\`\`;\`\\ _ /\`;\`/ - \` : | |
+         \\  \\ \`-.   \\_ __\\ /__ _/   .-\` /  /
+    ======\`-.____\`-.___\\_____/___.-\`____.-'======
+                       \`=---='
+
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         如来佛祖保佑       永不宕机      永无BUG${reset}
+`);
 }
 bootstrap();

@@ -16,7 +16,19 @@ async function bootstrap() {
     },
   );
   await app.listen();
-  console.log(`User service is listening on port ${USER_SERVICE_PORT}`);
+
+  const green = '\x1b[32m';
+  const reset = '\x1b[0m';
+  const bold  = '\x1b[1m';
+
+  console.log(`
+${green}${bold}╔════════════════════════════════════════╗
+║          USER SERVICE  ONLINE          ║
+╚════════════════════════════════════════╝${reset}
+${green}  ► 传输    : TCP
+  ► 端口    : ${USER_SERVICE_PORT}
+  ► 职责    : 用户 CRUD + 密码验证${reset}
+`);
 }
 
 bootstrap();

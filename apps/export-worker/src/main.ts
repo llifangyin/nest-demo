@@ -18,6 +18,18 @@ async function bootstrap() {
     },
   );
   await app.listen();
-  console.log('Export Worker 已启动，等待消息...');
+
+  const magenta = '\x1b[35m';
+  const reset   = '\x1b[0m';
+  const bold    = '\x1b[1m';
+
+  console.log(`
+${magenta}${bold}╔════════════════════════════════════════╗
+║         EXPORT WORKER  ONLINE          ║
+╚════════════════════════════════════════╝${reset}
+${magenta}  ► 传输    : RabbitMQ
+  ► 队列    : ${EXPORT_QUEUE}
+  ► 职责    : 异步导出 CSV 文件${reset}
+`);
 }
-bootstrap()
+bootstrap();

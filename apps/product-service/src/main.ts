@@ -17,7 +17,18 @@ async function bootstrap() {
     },
   );
   await app.listen();
-  console.log(`Product service is listening on port ${PRODUCT_SERVICE_PORT}`);
 
+  const yellow = '\x1b[33m';
+  const reset  = '\x1b[0m';
+  const bold   = '\x1b[1m';
+
+  console.log(`
+${yellow}${bold}╔════════════════════════════════════════╗
+║        PRODUCT SERVICE  ONLINE         ║
+╚════════════════════════════════════════╝${reset}
+${yellow}  ► 传输    : TCP
+  ► 端口    : ${PRODUCT_SERVICE_PORT}
+  ► 职责    : 商品 CRUD${reset}
+`);
 }
 bootstrap();
