@@ -3,7 +3,9 @@ import type { Response } from 'express';
 import * as path from 'path';
 import { ExportService } from '../services/export.service';
 import { Public } from '../auth/decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
 
+@Throttle({ short: { ttl: 60000, limit: 3 } }) // 每分钟最多请求3次（ttl 单位：毫秒）
 @Controller('export')
 export class ExportController {
   constructor(private readonly exportService: ExportService) {}
