@@ -159,28 +159,31 @@ nest-demo/
 | — | `@EventPattern('xxx')` | 异步事件（不需要响应） |
 
 ### 4.2 网关转发请求
-
+- send() — 同步请求，等待结果返回，参数cmd随便定义，网关和微服务约定好就行
+- emit() — 异步事件，不等待结果
 ```typescript
-// 注入微服务客户端
+// 注入微服务客户端   //../gateway.module.ts 里注册了 USER_SERVICE 的 TCP 客户端
 @Inject('USER_SERVICE') private client: ClientProxy
 
-// send() — 同步请求响应（等返回值），类似 axios.get()
+// send() — 同步请求响应（等返回值），类似 axios.get()    // ../gateway/controllers/users.controller.ts
 const users = await firstValueFrom(
   this.client.send({ cmd: 'find_all_users' }, payload)
 );
 
-// emit() — 异步事件（不等返回值），类似 EventBus.$emit()
+// emit() — 异步事件（不等返回值），类似 EventBus.$emit()  // ../gateway/controllers/export.controller.ts
 this.client.emit('export_user', payload);
 ```
 
 ### 4.3 微服务接收请求
+- MessagePattern() — 对应 send() 的同步请求，必须 return 结果
+- EventPattern() — 对应 emit() 的异步事件，不需要 return
 
 ```typescript
-// 对应 send()  — 同步，必须 return 结果
+// 对应 send()  — 同步，必须 return 结果 // apps/user-service/src/user-service.controller.ts
 @MessagePattern({ cmd: 'find_all_users' })
 findAll(@Payload() data) { return this.service.findAll(); }
 
-// 对应 emit() — 异步，不需要 return
+// 对应 emit() — 异步，不需要 return // apps/export-worker/src/export-worker.controller.ts
 @EventPattern('export_user')
 handleExport(@Payload() data) { /* 处理导出 */ }
 ```
@@ -188,14 +191,14 @@ handleExport(@Payload() data) { /* 处理导出 */ }
 ### 4.4 网关注册微服务客户端
 
 ```typescript
-// TCP 客户端（同步调用）
+// TCP 客户端（同步调用） // ../gateway.module.ts 里
 ClientsModule.register([{
   name: 'USER_SERVICE',
   transport: Transport.TCP,
   options: { host: 'localhost', port: 3001 },
 }])
 
-// RabbitMQ 客户端（异步事件）
+// RabbitMQ 客户端（异步事件） // ../gateway.module.ts 里
 ClientsModule.registerAsync([{
   name: 'EXPORT_SERVICE',
   useFactory: (config) => ({
@@ -208,7 +211,7 @@ ClientsModule.registerAsync([{
 ### 4.5 微服务入口启动
 
 ```typescript
-// TCP 微服务
+// TCP 微服务 // apps/user-service/src/main.ts 里
 NestFactory.createMicroservice(Module, {
   transport: Transport.TCP,
   options: { host: '0.0.0.0', port: 3001 },
@@ -330,7 +333,7 @@ libs/common/src/
 ---
 
 ## 6. 第一步：转换为 Monorepo + 创建共享库
-
+> 改造前项目tag v1.0，改造完成后tag v2.0，方便对比改动
 ### 6.1 生成 Monorepo 结构
 
 在 `nest-demo/` 目录下执行：

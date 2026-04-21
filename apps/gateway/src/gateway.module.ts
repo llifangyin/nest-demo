@@ -28,17 +28,20 @@ import { HealthModule } from './health/health.module';
 import { RpcExceptionFilter } from './filters/rpc-exception.filter';
 import { TimeoutInterceptor } from './interceptors/timeout.interceptor';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
-import { TransformInterceptor } from './interceptors/transform.interceptor';  // 加这行
+import { TransformInterceptor } from './interceptors/transform.interceptor'; // 加这行
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PassportModule, // JWT 模块配置，使用异步方式从 ConfigService 获取配置项
     JwtModule.registerAsync({
+      // JWT 模块配置，使用异步方式从 ConfigService 获取配置项
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('JWT_SECRET')!,
-        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d')! as any },
+        signOptions: {
+          expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d') as any,
+        },
       }),
     }),
 
@@ -77,17 +80,19 @@ import { TransformInterceptor } from './interceptors/transform.interceptor';  //
       }),
     }),
     // 导出任务模型注册
-    MongooseModule.forFeature([{ name: ExportTask.name, schema: ExportTaskSchema }]),
+    MongooseModule.forFeature([
+      { name: ExportTask.name, schema: ExportTaskSchema },
+    ]),
     // RabbitMQ 微服务客户端，使用异步方式从 ConfigService 获取连接配置
     ClientsModule.registerAsync([
       {
         name: EXPORT_SERVICE,
         inject: [ConfigService],
-        useFactory: async (config: ConfigService) => ({
+        useFactory: (config: ConfigService) => ({
           transport: Transport.RMQ,
           options: {
             urls: [config.get<string>('RABBITMQ_URL')!],
-            queue: EXPORT_QUEUE,  
+            queue: EXPORT_QUEUE,
             queueOptions: { durable: true },
           },
         }),
@@ -97,7 +102,14 @@ import { TransformInterceptor } from './interceptors/transform.interceptor';  //
     // 健康检查
     HealthModule,
   ],
-  controllers: [UsersController, ProductsController, AuthController, ExportController],
+  // 控制器配置
+  controllers: [
+    UsersController,
+    ProductsController,
+    AuthController,
+    ExportController,
+  ],
+  // 认证相关 providers 和全局守卫、过滤器、拦截器 配置
   providers: [
     AuthService,
     ExportService,
