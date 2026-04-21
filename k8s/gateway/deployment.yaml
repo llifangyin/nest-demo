@@ -1,0 +1,37 @@
+# 该文件目的是定义一个 Deployment 对象，
+# Deployment 是 Kubernetes 中用于管理 Pod 副本的对象，
+# 可以确保指定数量的 Pod 在任何时候都在运行，并提供滚动更新等功能。
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: nest-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: nest-demo-gateway:latest  # docker compose build 出来的镜像名
+          imagePullPolicy: Never           # 本地镜像，不从远端拉取
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: nest-config
+            - secretRef:
+                name: nest-secret
+          volumeMounts:
+            - name: export-files
+              mountPath: /app/dist/apps/exports   # 读取导出文件（与 export-worker 共享）
+      volumes:
+        - name: export-files
+          persistentVolumeClaim:
+            claimName: export-files-pvc

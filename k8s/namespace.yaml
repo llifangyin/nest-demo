@@ -1,0 +1,7 @@
+# 该文件目的是定义一个 Namespace 对象，
+# 命名空间是 Kubernetes 中用于隔离资源的机制，
+# 可以将不同的应用或环境放在不同的命名空间中，避免资源冲突和权限问题。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nest-demo

@@ -20,8 +20,11 @@ docker compose ps
 docker compose logs gateway
 docker compose logs gateway -f  # 实时跟踪
 
-# 停止所有容器
+# 停止所有容器  会删除容器但不删除数据
 docker compose down
+
+# 只停止容器，保留数据卷
+docker compose stop
 
 # 停止并删除数据卷（危险：会清空 MongoDB 数据！）
 docker compose down -v

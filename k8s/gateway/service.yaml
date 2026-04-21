@@ -1,0 +1,17 @@
+# 该文件目的是定义一个 Service 对象，
+# Service 是 Kubernetes 中用于暴露应用的对象，
+# 可以将一组 Pod 作为一个服务对外提供访问，支持负载均衡和服务发现等功能。
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-svc
+  namespace: nest-demo
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30000      # 宿主机端口，访问 localhost:30000
+  type: NodePort           # 本地学习用 NodePort 对外暴露

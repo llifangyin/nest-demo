@@ -1,0 +1,31 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: export-worker
+  namespace: nest-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: export-worker
+  template:
+    metadata:
+      labels:
+        app: export-worker
+    spec:
+      containers:
+        - name: export-worker
+          image: nest-demo-export-worker:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: nest-config
+            - secretRef:
+                name: nest-secret
+          volumeMounts:
+            - name: export-files
+              mountPath: /app/dist/apps/exports   # 写入导出文件
+      volumes:
+        - name: export-files
+          persistentVolumeClaim:
+            claimName: export-files-pvc

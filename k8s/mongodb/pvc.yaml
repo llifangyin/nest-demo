@@ -1,0 +1,15 @@
+# 该文件目的是定义一个 PersistentVolumeClaim 对象，
+# PVC 是 Kubernetes 中用于请求存储资源的对象，
+# 可以绑定到 PersistentVolume（PV）上，提供持久化存储给 Pod 使用。
+# PersistentVolumeClaim 是对 PersistentVolume 的一种抽象，用户只需要关心存储需求，而不需要关心底层存储的实现细节。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+  namespace: nest-demo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

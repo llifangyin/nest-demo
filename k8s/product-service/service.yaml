@@ -1,0 +1,12 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: product-service-svc
+  namespace: nest-demo
+spec:
+  selector:
+    app: product-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+  type: ClusterIP   # 仅集群内部可访问（gateway 通过 TCP 连接）

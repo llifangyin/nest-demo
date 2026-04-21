@@ -1,0 +1,26 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: nest-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      containers:
+        - name: product-service
+          image: nest-demo-product-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3002   # TCP 微服务端口
+          envFrom:
+            - configMapRef:
+                name: nest-config
+            - secretRef:
+                name: nest-secret
