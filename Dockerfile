@@ -46,7 +46,10 @@ RUN npm ci --only=production && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
 # 提前创建 logs 目录并赋予 appuser 写权限（必须在 USER 切换前做）
-RUN mkdir -p /app/logs && chown -R appuser:addgroup /app/logs
+# RUN mkdir -p /app/logs && chown -R appuser:addgroup /app/logs
+RUN mkdir -p /app/logs && \
+    mkdir -p /app/dist/apps/exports && \
+    chown -R appuser:addgroup /app/logs /app/dist/apps/exports
 
 # 切换到非 root 用户
 USER appuser

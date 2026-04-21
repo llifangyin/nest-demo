@@ -30,6 +30,6 @@ export class ExportController {
     const fileName = path.basename(task.filePath);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', 'text/csv');
-    res.sendFile(task.filePath);
+    res.sendFile(task.filePath, { root: '/' });
   }
 }

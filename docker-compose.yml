@@ -108,7 +108,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-
+    volumes:
+    - export-files:/app/dist/apps/exports   # 写入这个卷
   gateway:
     build:
       context: .
@@ -121,7 +122,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - gateway-logs:/app/logs
+     - gateway-logs:/app/logs
+     - export-files:/app/dist/apps/exports   # 从同一个卷读取
     networks:
       - nest-network
     depends_on:
@@ -133,7 +135,18 @@ services:
         condition: service_started
       product-service:
         condition: service_started
-
+  web:
+    build:
+      context: ../nest-web
+      dockerfile: Dockerfile
+    container_name: nest-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - nest-network
+    depends_on:
+      - gateway
 networks:
   nest-network:
     driver: bridge
