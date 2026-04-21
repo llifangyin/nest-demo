@@ -62,12 +62,24 @@ export class UserService {
     // 第二个参数10是盐的轮数，表示在哈希过程中会进行10轮的加盐处理，以增加哈希密码的安全性。
     // 这个方法返回一个Promise，所以我们使用await来等待哈希处理完成，并将结果赋值给hashedPassword变量。
     const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const result = await this.userDao.create({
+      ...dto,
+      password: hashedPassword,
+    });
 
-    return this.userDao.create({ ...dto, password: hashedPassword });
+    // 清除用户列表缓存，避免新增后查询不到
+    await this.cacheManager.del('users::');
+
+    return result;
   }
   async update(id: string, dto: UpdateUserDto) {
     await this.findOne(id); //先检查用户是否存在，如果不存在会抛出NotFoundException异常
-    return this.userDao.updateById(id, dto);
+    const result = await this.userDao.updateById(id, dto);
+
+    // 清除用户列表缓存，避免更新后查询到旧数据
+    await this.cacheManager.del('users::');
+
+    return result;
   }
   async remove(id: string) {
     await this.findOne(id); //先检查用户是否存在，如果不存在会抛出NotFoundException异常

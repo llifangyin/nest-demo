@@ -1,0 +1,16 @@
+node_modules/
+dist/
+logs/
+*.log
+.env
+.env.*
+!.env.example
+.git/
+.gitignore
+.vscode/
+**/*.spec.ts
+**/*.e2e-spec.ts
+test/
+doc/
+README.md
+.DS_Store

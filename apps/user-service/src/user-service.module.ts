@@ -6,6 +6,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { UserServiceController } from './user-service.controller';
 import { UserDao } from './dao/user.dao';
 import { UserService } from './user-service.service';
+import { SeedService } from './seed.service';
 
 @Module({
   imports:[
@@ -21,6 +22,6 @@ import { UserService } from './user-service.service';
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
   ],
   controllers: [UserServiceController],
-  providers: [UserService, UserDao], //注册UserDao到模块的providers数组中，这样NestJS就会知道如何创建和注入UserDao实例了。
+  providers: [UserService, UserDao, SeedService], //注册UserDao和SeedService到模块的providers数组中，这样NestJS就会知道如何创建和注入它们的实例了。
 })
 export class UserServiceModule {}

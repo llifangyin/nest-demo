@@ -1,0 +1,146 @@
+services:
+
+  # ================================================================
+  # 基础设施层
+  # ================================================================
+
+  mongodb:
+    image: mongo:7
+    container_name: nest-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+    ports:
+    - "27017:27017" 
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - nest-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: nest-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "15672:15672"    # 管理界面
+      - "5672:5672"      # 加这行暴露AMQP协议端口，供应用服务连接使用
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - nest-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: nest-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASS}
+    volumes:
+      - redis-data:/data
+    networks:
+      - nest-network
+    ports:
+       - "6379:6379"      # 加这行
+
+  # ================================================================
+  # 业务服务层
+  # ================================================================
+
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: user-service
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    networks:
+      - nest-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  product-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: product-service
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    networks:
+      - nest-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  export-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: export-worker
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    networks:
+      - nest-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: gateway
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    ports:
+      - "3000:3000"
+    volumes:
+      - gateway-logs:/app/logs
+    networks:
+      - nest-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      product-service:
+        condition: service_started
+
+networks:
+  nest-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  rabbitmq-data:
+  redis-data:
+  export-files:
+  gateway-logs:

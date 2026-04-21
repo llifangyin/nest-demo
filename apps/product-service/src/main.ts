@@ -11,7 +11,7 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: '127.0.0.1',
+        host: '0.0.0.0', // 监听所有地址，允许外部访问
         port: PRODUCT_SERVICE_PORT,
       },
     },

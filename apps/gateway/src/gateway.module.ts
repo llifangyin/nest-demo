@@ -54,24 +54,49 @@ import { TransformInterceptor } from './interceptors/transform.interceptor'; // 
     }),
 
     // TCP 微服务客户端
-    ClientsModule.register([
+    // 从环境变量读取 host（本地默认 localhost，Docker 里注入服务名）
+    ClientsModule.registerAsync([
       {
         name: USER_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: USER_SERVICE_PORT,
-        },
+        inject: [ConfigService],
+        useFactory: (config: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: config.get<string>('USER_SERVICE_HOST', 'localhost'),
+            port: USER_SERVICE_PORT,
+          },
+        }),
       },
       {
         name: PRODUCT_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PRODUCT_SERVICE_PORT,
-        },
+        inject: [ConfigService],
+        useFactory: (config: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: config.get<string>('PRODUCT_SERVICE_HOST', 'localhost'),
+            port: PRODUCT_SERVICE_PORT,
+          },
+        }),
       },
     ]),
+    // ClientsModule.register([
+    //   {
+    //     name: USER_SERVICE,
+    //     transport: Transport.TCP,
+    //     options: {
+    //       host: 'localhost',
+    //       port: USER_SERVICE_PORT,
+    //     },
+    //   },
+    //   {
+    //     name: PRODUCT_SERVICE,
+    //     transport: Transport.TCP,
+    //     options: {
+    //       host: 'localhost',
+    //       port: PRODUCT_SERVICE_PORT,
+    //     },
+    //   },
+    // ]),
     // MongoDB 配置，使用异步方式从 ConfigService 获取连接 URI
     MongooseModule.forRootAsync({
       inject: [ConfigService],
