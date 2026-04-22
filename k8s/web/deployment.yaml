@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: nest-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nest-web:latest      # docker compose build 打出的镜像名
+          imagePullPolicy: Never      # 本地镜像，不从远端拉取
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf   # 只覆盖 default.conf，不影响其他 nginx 配置
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: web-nginx-conf      # 挂载上方 ConfigMap 中的 nginx 配置

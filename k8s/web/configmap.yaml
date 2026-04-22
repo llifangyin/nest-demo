@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-nginx-conf
+  namespace: nest-demo
+data:
+  # 在 K8s 中，nginx 容器通过 Service 名访问 gateway（gateway-svc）
+  # Docker Compose 里用 gateway，K8s 里用 gateway-svc
+  # 通过 ConfigMap 挂载，避免改动镜像里的 nginx.conf
+  default.conf: |
+    server {
+        listen 80;
+        server_name localhost;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # 反向代理：/proxy/* 转发到 K8s gateway Service
+        location /proxy/ {
+            proxy_pass http://gateway-svc:3000/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        # SPA history 路由：未匹配路径返回 index.html
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }

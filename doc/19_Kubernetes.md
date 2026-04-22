@@ -17,16 +17,22 @@
 6. [ConfigMap & Secret — 配置管理](#6-configmap--secret--配置管理)
 7. [整体架构图](#7-整体架构图)
 
-**第二部分：动手实操**
+**第二部分：部署命令 + 验证方式 + 常见问题**
 
-8. [第一步：启用 Docker Desktop 内置 Kubernetes](#8-第一步启用-docker-desktop-内置-kubernetes)
-9. [第二步：了解 kubectl 基本命令](#9-第二步了解-kubectl-基本命令)
-10. [第三步：部署基础设施（MongoDB / RabbitMQ / Redis）](#10-第三步部署基础设施mongodb--rabbitmq--redis)
-11. [第四步：创建 Secret 管理密码](#11-第四步创建-secret-管理密码)
-12. [第五步：部署业务服务](#12-第五步部署业务服务)
-13. [第六步：验证与访问](#13-第六步验证与访问)
-14. [常用命令速查](#14-常用命令速查)
-15. [Docker Compose vs Kubernetes 对比](#15-docker-compose-vs-kubernetes-对比)
+8. [部署命令完整执行顺序](#8-部署命令完整执行顺序)
+9. [kubectl 常用命令速查](#9-kubectl-常用命令速查)
+10. [验证部署是否成功](#10-验证部署是否成功)
+11. [K8s 与 Docker Compose 部署的区别](#11-k8s-与-docker-compose-部署的区别)
+12. [能访问页面吗](#12-能访问页面吗)
+
+**第三部分：实操 — yaml 文件配置**
+
+13. [启用 Docker Desktop 内置 Kubernetes](#13-启用-docker-desktop-内置-kubernetes)
+14. [目录结构](#14-目录结构)
+15. [基础配置文件（namespace / secret / configmap）](#15-基础配置文件namespace--secret--configmap)
+16. [基础设施（MongoDB / RabbitMQ / Redis）](#16-基础设施mongodb--rabbitmq--redis)
+17. [业务服务（user-service / product-service / export-worker / gateway）](#17-业务服务user-service--product-service--export-worker--gateway)
+18. [前端服务（web — nginx + React SPA）](#18-前端服务web--nginx--react-spa)
 
 ---
 
@@ -250,13 +256,218 @@ env:
 
 ---
 
-# 第二部分：动手实操
-
-> 本项目使用 **Docker Desktop 内置的 Kubernetes**，不需要额外安装，适合本地学习。
+# 第二部分：部署命令 + 验证方式 + 常见问题
 
 ---
 
-## 8. 第一步：启用 Docker Desktop 内置 Kubernetes
+## 8. 部署命令完整执行顺序
+
+> 确保 K8s 已启动（底部绿点 `Kubernetes running`），在 `nest-demo/` 目录下执行。
+
+```bash
+# ① 先构建本地镜像（K8s 使用本地镜像，需要先 build）
+docker compose --env-file .env.docker build
+
+# ② 创建命名空间（相当于新建一个隔离的工作区）
+kubectl apply -f k8s/namespace.yaml
+
+# ③ 注入配置和密码
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/configmap.yaml
+
+# ④ 部署基础设施
+kubectl apply -f k8s/mongodb/
+kubectl apply -f k8s/rabbitmq/
+kubectl apply -f k8s/redis/
+
+# ⑤ 等待 MongoDB 就绪后再启动依赖它的业务服务
+kubectl wait --for=condition=ready pod -l app=mongodb -n nest-demo --timeout=120s
+
+# ⑥ 部署业务服务
+kubectl apply -f k8s/export-worker/
+kubectl apply -f k8s/user-service/
+kubectl apply -f k8s/product-service/
+kubectl apply -f k8s/gateway/
+kubectl apply -f k8s/web/
+```
+
+完成后打开浏览器访问 **http://localhost:30080** 即可看到前端页面。
+
+**更新代码后重新部署：**
+
+```bash
+# 重新构建镜像 → 重启对应 Deployment
+docker compose --env-file .env.docker build
+kubectl rollout restart deployment/gateway -n nest-demo
+kubectl rollout restart deployment/web -n nest-demo
+```
+
+---
+
+## 9. kubectl 常用命令速查
+
+```bash
+# ===== 查看状态 =====
+kubectl get pods -n nest-demo               # 查看所有 Pod（STATUS 应为 Running）
+kubectl get pods -n nest-demo -o wide       # 含 IP、所在节点
+kubectl get services -n nest-demo           # 查看所有 Service 和端口
+kubectl get all -n nest-demo                # 查看命名空间所有资源
+
+# ===== 查看日志 =====
+kubectl logs -l app=gateway -n nest-demo    # 查看 gateway 日志
+kubectl logs <pod-name> -n nest-demo -f     # 实时跟踪某个 Pod 的日志
+kubectl logs <pod-name> -n nest-demo --previous  # 查看崩溃前的日志
+
+# ===== 排错 =====
+kubectl describe pod <pod-name> -n nest-demo     # 查看 Pod 详情和 Events（启动失败必看）
+kubectl get events -n nest-demo                  # 查看所有事件
+kubectl exec -it <pod-name> -n nest-demo -- sh   # 进入 Pod 内部调试
+
+# ===== 资源管理 =====
+kubectl apply -f k8s/                            # 应用整个目录下所有 yaml
+kubectl delete -f k8s/                           # 删除整个目录下所有资源
+kubectl rollout restart deployment/gateway -n nest-demo  # 重启 Deployment
+
+# ===== 扩缩容 =====
+kubectl scale deployment gateway --replicas=3 -n nest-demo
+kubectl scale deployment gateway --replicas=1 -n nest-demo
+
+# ===== 滚动更新 =====
+kubectl rollout status deployment/gateway -n nest-demo   # 查看更新进度
+kubectl rollout undo deployment/gateway -n nest-demo     # 回滚到上个版本
+
+# ===== 清理 =====
+kubectl delete namespace nest-demo          # 删除整个命名空间（含所有资源）
+```
+
+---
+
+## 10. 验证部署是否成功
+
+### 第一步：查看 Pod 状态
+
+```bash
+kubectl get pods -n nest-demo
+```
+
+期望所有 Pod 都是 `Running`，`RESTARTS` 不要持续增加：
+
+```
+NAME                               READY   STATUS    RESTARTS   AGE
+mongodb-xxxx                       1/1     Running   0          2m
+rabbitmq-xxxx                      1/1     Running   0          2m
+redis-xxxx                         1/1     Running   0          2m
+user-service-xxxx                  1/1     Running   0          1m
+product-service-xxxx               1/1     Running   0          1m
+export-worker-xxxx                 1/1     Running   0          1m
+gateway-xxxx                       1/1     Running   0          1m
+web-xxxx                           1/1     Running   0          1m
+```
+
+### 第二步：验证接口 & 页面
+
+```bash
+# 打开浏览器访问前端页面（NodePort 30080）
+start http://localhost:30080
+
+# 测试 gateway 健康检查（NodePort 30000）
+curl http://localhost:30000/health
+
+# 测试登录接口
+curl -X POST http://localhost:30000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"Password01!"}'
+```
+
+### 第三步：查看日志确认启动正常
+
+```bash
+# 查看 gateway 日志
+kubectl logs -l app=gateway -n nest-demo
+
+# 查看 user-service 日志
+kubectl logs -l app=user-service -n nest-demo
+```
+
+### Pod 启动失败排查
+
+```bash
+# 查看 Pod 的 Events（最重要的排错命令）
+kubectl describe pod <pod-name> -n nest-demo
+
+# 常见原因：
+# ImagePullBackOff  → 镜像不存在，检查镜像名或重新 docker build
+# CrashLoopBackOff  → 容器启动后崩溃，用 logs --previous 查看崩溃日志
+# Pending           → 资源不足或 PVC 未绑定
+```
+
+---
+
+## 11. K8s 与 Docker Compose 部署的区别
+
+| 维度 | Docker Compose | Kubernetes（本地）|
+|------|---------------|-----------------|
+| **启动命令** | `docker compose up -d` | `kubectl apply -f k8s/` |
+| **停止** | `docker compose down` | `kubectl delete namespace nest-demo` |
+| **查看日志** | `docker compose logs gateway` | `kubectl logs -l app=gateway -n nest-demo` |
+| **进入容器** | `docker exec -it <name> sh` | `kubectl exec -it <pod> -n nest-demo -- sh` |
+| **重启服务** | `docker compose restart gateway` | `kubectl rollout restart deployment/gateway -n nest-demo` |
+| **访问端口** | 直接 `localhost:3000` | NodePort `localhost:30000` |
+| **镜像来源** | 本地 build，直接使用 | 本地 build，`imagePullPolicy: Never` |
+| **数据持久化** | named volume | PersistentVolumeClaim (PVC) |
+| **服务间通信** | 服务名（如 `mongodb`）| 服务名 + 命名空间（如 `mongodb-svc`）|
+| **配置注入** | `.env.docker` 文件 | ConfigMap + Secret |
+| **崩溃恢复** | `restart: unless-stopped`（有限）| 自动重建 Pod（可靠）|
+| **扩容** | 不支持 | `kubectl scale --replicas=3` |
+
+**核心区别总结：**
+
+```
+Docker Compose：
+  → 一个命令启动所有服务，配置集中在一个文件里
+  → 适合开发调试，操作简单
+
+Kubernetes：
+  → 配置分散在多个 yaml 文件里，每类资源独立管理
+  → 更健壮：Pod 崩了自动重建、支持扩容、滚动更新
+  → 操作命令更多，但更灵活
+```
+
+---
+
+## 12. 能访问页面吗
+
+### 当前 K8s 部署状态（前后端全部在 K8s）
+
+执行完 `kubectl apply -f k8s/web/` 后，所有服务均已在 K8s 中运行：
+
+| 服务 | 访问地址 | 说明 |
+|------|---------|------|
+| **前端页面** | **http://localhost:30080** | nest-web React SPA |
+| Gateway API | http://localhost:30000 | 后端接口 |
+| RabbitMQ 管理界面 | http://localhost:31672 | 账号 admin/Password01! |
+
+### nginx 如何代理到后端
+
+nest-web 的 nginx 配置通过 K8s **ConfigMap** 注入，把 Docker Compose 里的 `gateway` 服务名替换成了 K8s 的 `gateway-svc`：
+
+```
+浏览器 → http://localhost:30080
+  ↓
+nginx（web Pod）
+  ├── /proxy/* → proxy_pass http://gateway-svc:3000/   ← K8s Service DNS
+  └── /*       → index.html（SPA 路由）
+```
+
+> Docker Compose 的 `nginx.conf` 里用的是 `http://gateway:3000/`（Compose 服务名），K8s 里通过 ConfigMap 挂载不同配置，两套环境互不干扰。
+
+---
+
+# 第三部分：实操 — yaml 文件配置
+
+---
+
+## 13. 启用 Docker Desktop 内置 Kubernetes
 
 1. 打开 Docker Desktop → 右上角 ⚙️ Settings
 2. 左侧菜单选 **Kubernetes**
@@ -278,45 +489,11 @@ kubectl get nodes
 
 ---
 
-## 9. 第二步：了解 kubectl 基本命令
-
-`kubectl` 是操作 Kubernetes 的命令行工具，类比 `docker` 命令：
-
-```bash
-# ===== 查看资源 =====
-kubectl get pods                    # 查看所有 Pod
-kubectl get pods -o wide            # 查看 Pod 详情（含 IP、所在节点）
-kubectl get deployments             # 查看所有 Deployment
-kubectl get services                # 查看所有 Service
-kubectl get all                     # 查看所有资源
-
-# ===== 查看日志 =====
-kubectl logs <pod-name>             # 查看 Pod 日志
-kubectl logs <pod-name> -f          # 实时跟踪
-kubectl logs <pod-name> --previous  # 查看上次崩溃的日志
-
-# ===== 调试 =====
-kubectl describe pod <pod-name>     # 查看 Pod 详细信息（含 Events，排错用）
-kubectl exec -it <pod-name> -- sh   # 进入 Pod Shell
-
-# ===== 应用配置 =====
-kubectl apply -f <file.yaml>        # 应用配置文件（创建或更新）
-kubectl delete -f <file.yaml>       # 删除配置文件定义的资源
-kubectl delete pod <pod-name>       # 删除 Pod（Deployment 会自动重建）
-
-# ===== 命名空间 =====
-kubectl get pods -n <namespace>     # 查看指定命名空间的 Pod
-kubectl get pods --all-namespaces   # 查看所有命名空间
-```
-
----
-
-## 10. 第三步：部署基础设施（MongoDB / RabbitMQ / Redis）
+## 14. 目录结构
 
 新建目录 `nest-demo/k8s/`，把所有 K8s 配置文件放在里面。
+> yaml 全称 "YAML Ain't Markup Language"，人类可读的配置格式，K8s 用它定义所有资源对象。
 
-### 目录结构
-yaml文件全称是 "YAML Ain't Markup Language"，是一种人类可读的数据序列化格式，常用于配置文件。Kubernetes 使用 YAML 文件定义资源对象，如 Pod、Deployment、Service 等。
 ```
 nest-demo/k8s/
 ├── namespace.yaml          # 命名空间
@@ -340,10 +517,16 @@ nest-demo/k8s/
 │   └── service.yaml
 ├── export-worker/
 │   └── deployment.yaml
-└── gateway/
+├── gateway/
+│   ├── deployment.yaml
+│   └── service.yaml
+└── web/
+    ├── configmap.yaml      # nginx 配置（proxy 指向 gateway-svc）
     ├── deployment.yaml
-    └── service.yaml
+    └── service.yaml        # NodePort 30080 → 浏览器访问
 ```
+
+## 15. 基础配置文件（namespace / secret / configmap）
 
 ### `k8s/namespace.yaml`
 
@@ -394,6 +577,8 @@ data:
   JWT_EXPIRES_IN: 1d
   TZ: Asia/Shanghai
 ```
+
+## 16. 基础设施（MongoDB / RabbitMQ / Redis）
 
 ### `k8s/mongodb/pvc.yaml`（持久化存储声明）
 
@@ -608,28 +793,7 @@ spec:
 
 ---
 
-## 11. 第四步：创建 Secret 管理密码
-
-> ⚠️ `secret.yaml` 里有密码，不要提交到 Git。生产环境用 [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) 或云服务商的 KMS。
-
-```bash
-# 在 nest-demo/ 目录下
-
-# 创建命名空间
-kubectl apply -f k8s/namespace.yaml
-
-# 创建 Secret 和 ConfigMap
-kubectl apply -f k8s/secret.yaml
-kubectl apply -f k8s/configmap.yaml
-
-# 验证
-kubectl get secret -n nest-demo
-kubectl get configmap -n nest-demo
-```
-
----
-
-## 12. 第五步：部署业务服务
+## 17. 业务服务（user-service / product-service / export-worker / gateway）
 
 ### `k8s/export-worker/pvc.yaml`（export-worker 与 gateway 共享的文件卷）
 
@@ -837,105 +1001,116 @@ spec:
   type: NodePort           # 本地学习用 NodePort 对外暴露
 ```
 
-`k8s/gateway/service.yaml`：
+`k8s/gateway/service.yaml`：已在上方展示，不再重复。
+
+---
+
+## 18. 前端服务（web — nginx + React SPA）
+
+> nest-web 是 React（UmiJS）SPA，打包后由 nginx 托管。nginx 在 K8s 内通过 Service DNS 代理 API 请求到 gateway。
+
+### 关键点：为什么要 ConfigMap？
+
+nest-web 的 `nginx.conf` 里写的是 `proxy_pass http://gateway:3000/`（Docker Compose 服务名）。  
+在 K8s 里 gateway 的 Service 名是 `gateway-svc`，所以需要**不同的 nginx 配置**。  
+通过 ConfigMap 挂载覆盖容器内的 `/etc/nginx/conf.d/default.conf`，无需修改镜像，两套环境互不干扰。
+
+### `k8s/web/configmap.yaml`
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-nginx-conf
+  namespace: nest-demo
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name localhost;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # 反向代理：/proxy/* 转发到 K8s gateway Service
+        location /proxy/ {
+            proxy_pass http://gateway-svc:3000/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        # SPA history 路由：未匹配路径返回 index.html
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+```
+
+### `k8s/web/deployment.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: nest-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nest-web:latest      # docker compose build 打出的镜像名
+          imagePullPolicy: Never      # 本地镜像，不从远端拉取
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf   # 只覆盖 default.conf，不影响其他 nginx 配置
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: web-nginx-conf      # 挂载 K8s 版本的 nginx 配置
+```
+
+### `k8s/web/service.yaml`
 
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: gateway-svc
+  name: web-svc
   namespace: nest-demo
 spec:
   selector:
-    app: gateway
+    app: web
   ports:
-    - port: 3000
-      targetPort: 3000
-      nodePort: 30000      # 宿主机端口，访问 localhost:30000
-  type: NodePort           # 本地学习用 NodePort 对外暴露
+    - port: 80
+      targetPort: 80
+      nodePort: 30080   # 浏览器访问：http://localhost:30080
+  type: NodePort
 ```
 
-### 一次性部署所有服务
+### docker-compose.yml 同步修改
 
-```bash
-# 部署基础设施
-kubectl apply -f k8s/mongodb/
-kubectl apply -f k8s/rabbitmq/
-kubectl apply -f k8s/redis/
+在 `web` 服务下添加 `image: nest-web:latest`，让 `docker compose build` 打出的镜像名与 K8s deployment 一致：
 
-# 等待基础设施就绪
-kubectl wait --for=condition=ready pod -l app=mongodb -n nest-demo --timeout=60s
-
-# 部署业务服务
-kubectl apply -f k8s/user-service/
-kubectl apply -f k8s/product-service/
-kubectl apply -f k8s/export-worker/
-kubectl apply -f k8s/gateway/
+```yaml
+web:
+  build:
+    context: ../nest-web
+    dockerfile: Dockerfile
+  image: nest-web:latest      # 显式命名，K8s imagePullPolicy: Never 可复用此镜像
+  ...
 ```
-
----
-
-## 13. 第六步：验证与访问
-
-```bash
-# 查看所有 Pod 状态（等待全部 Running）
-kubectl get pods -n nest-demo
-
-# 查看 Service（找到 gateway-svc 的 NodePort）
-kubectl get services -n nest-demo
-
-# 查看某个 Pod 的日志
-kubectl logs -l app=gateway -n nest-demo
-
-# 测试接口（NodePort 30000）
-curl http://localhost:30000/health
-
-# 进入 gateway Pod 调试
-kubectl exec -it $(kubectl get pod -l app=gateway -n nest-demo -o name) -n nest-demo -- sh
-```
-
----
-
-## 14. 常用命令速查
-
-```bash
-# ===== 资源管理 =====
-kubectl apply -f k8s/              # 应用整个目录下所有 yaml
-kubectl delete -f k8s/             # 删除整个目录下所有资源
-kubectl rollout restart deployment/gateway -n nest-demo  # 重启 Deployment
-
-# ===== 扩缩容 =====
-kubectl scale deployment gateway --replicas=3 -n nest-demo   # 扩容到 3 个副本
-kubectl scale deployment gateway --replicas=1 -n nest-demo   # 缩容回 1 个
-
-# ===== 滚动更新 =====
-kubectl set image deployment/gateway gateway=nest-demo-gateway:v2 -n nest-demo
-kubectl rollout status deployment/gateway -n nest-demo   # 查看更新进度
-kubectl rollout undo deployment/gateway -n nest-demo     # 回滚到上个版本
-
-# ===== 排错 =====
-kubectl describe pod <name> -n nest-demo    # 查看 Pod 事件（启动失败必看）
-kubectl get events -n nest-demo             # 查看命名空间所有事件
-
-# ===== 清理 =====
-kubectl delete namespace nest-demo          # 删除整个命名空间（含所有资源）
-```
-
----
-
-## 15. Docker Compose vs Kubernetes 对比
-
-| 维度 | Docker Compose | Kubernetes |
-|------|---------------|-----------|
-| **适用场景** | 本地开发、单机部署 | 生产环境、多节点集群 |
-| **配置文件** | `docker-compose.yml`（1个文件）| 多个 `.yaml` 文件 |
-| **高可用** | 不支持（单实例）| 支持（多副本 + 自动重建）|
-| **自动扩容** | 手动 | `kubectl scale` 或 HPA 自动 |
-| **滚动更新** | 停机更新 | 不停机滚动更新 |
-| **服务发现** | 服务名 DNS | 服务名 DNS（Service）|
-| **学习成本** | 低 | 高 |
-| **运维复杂度** | 低 | 高 |
-| **适合阶段** | 开发 / 学习 / 小项目 | 中大型生产项目 |
 
 ---
 

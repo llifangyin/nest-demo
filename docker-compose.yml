@@ -139,6 +139,7 @@ services:
     build:
       context: ../nest-web
       dockerfile: Dockerfile
+    image: nest-web:latest      # 显式命名，K8s imagePullPolicy: Never 可复用此镜像
     container_name: nest-web
     restart: unless-stopped
     ports:
