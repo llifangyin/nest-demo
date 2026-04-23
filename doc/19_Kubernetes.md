@@ -268,8 +268,11 @@ env:
 # ① 先构建本地镜像（K8s 使用本地镜像，需要先 build）
 docker compose --env-file .env.docker build
 
+
 # ② 创建命名空间（相当于新建一个隔离的工作区）
 kubectl apply -f k8s/namespace.yaml
+
+# kubectl apply -f k8s/ 一次执行整个目录下的所有 yaml 文件，或者分步骤执行每个文件
 
 # ③ 注入配置和密码
 kubectl apply -f k8s/secret.yaml
